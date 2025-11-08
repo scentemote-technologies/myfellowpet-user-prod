@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Internal app cache -->
+    <cache-path
+        name="cache"
+        path="." />
+
+    <!-- External app cache (useful for temporary image files) -->
+    <external-cache-path
+        name="external_cache"
+        path="." />
+
+    <!-- Full external storage access (used by image_picker, camera, etc.) -->
+    <external-path
+        name="external_files"
+        path="." />
+</paths>

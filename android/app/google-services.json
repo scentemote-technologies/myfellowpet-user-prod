@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "442628504378",
+    "project_id": "myfellowpet-prod",
+    "storage_bucket": "myfellowpet-prod.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:442628504378:android:4a59a6e70556d9202aae03",
+        "android_client_info": {
+          "package_name": "com.myfellowpet.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "442628504378-grc342q4bcr1r4muk6a7cv1pot7g81tt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.myfellowpet.app",
+            "certificate_hash": "ee416753e27408bddf6c53244b93f91689c358f1"
+          }
+        },
+        {
+          "client_id": "442628504378-mr068vg9950qg17iom0dlbms440j2keu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLBlCbPFvQZzJmacJaAqp3Mc7rAKsvG1E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "442628504378-mr068vg9950qg17iom0dlbms440j2keu.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
