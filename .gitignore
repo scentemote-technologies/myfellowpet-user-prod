@@ -1,4 +1,6 @@
-# Miscellaneous
+# ---------------------------------------------
+# ⚙️ Miscellaneous
+# ---------------------------------------------
 *.class
 *.log
 *.pyc
@@ -12,18 +14,22 @@
 .swiftpm/
 migrate_working_dir/
 
-# IntelliJ related
+# ---------------------------------------------
+# 🧠 IntelliJ / Android Studio
+# ---------------------------------------------
 *.iml
 *.ipr
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
+# ---------------------------------------------
+# 🧩 VS Code (uncomment if you don’t want to track workspace settings)
+# ---------------------------------------------
 #.vscode/
 
-# Flutter/Dart/Pub related
+# ---------------------------------------------
+# 🦋 Flutter / Dart / Pub
+# ---------------------------------------------
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
@@ -31,15 +37,77 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
-
-# Symbolication related
+build/
+coverage/
+# Symbolication and obfuscation
 app.*.symbols
-
-# Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
+# ---------------------------------------------
+# 🤖 Android
+# ---------------------------------------------
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/.gradle/
+android/key.properties
+
+# ---------------------------------------------
+# 🍎 iOS
+# ---------------------------------------------
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework/
+ios/Flutter/Flutter.podspec
+ios/Flutter/App.framework
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+ios/build/
+
+# ---------------------------------------------
+# 🔥 Firebase
+# ---------------------------------------------
+# Firebase configuration and debug logs
+firebase-debug.log
+.firebase/
+.firebaserc
+.firebase-tools.json
+
+# Node.js dependencies inside Firebase Functions
+functions/node_modules/
+functions/lib/
+functions/.env
+functions/*.log
+
+# If you use emulator locally
+firebase.json
+storage.rules
+firestore.rules
+
+# ---------------------------------------------
+# 🔒 Environment & Secrets
+# ---------------------------------------------
+.env
+.env.*
+*.secret.*
+*.keys.json
+*.keystore
+*.jks
+
+# ---------------------------------------------
+# 🧪 Test / Generated / Temporary
+# ---------------------------------------------
+*.tmp
+*.temp
+*.bak
+*.old
+test-output/
+coverage/
+
+# ---------------------------------------------
+# 🪶 Platform specific
+# ---------------------------------------------
+web/.dart_tool/
+linux/build/
+windows/build/
+macos/build/
