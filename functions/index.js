@@ -1,61 +1,49 @@
-import { onSchedule } from "firebase-functions/v2/scheduler";
-import fetch from "node-fetch";
+// functions/index.js
 
-export const verifyPendingPayouts = onSchedule(
-  {
-    schedule: "every 30 minutes",
-    region: "asia-south1",
-  },
-  async (event) => {
-    const db = admin.firestore();
-    const pendingSnap = await db
-      .collectionGroup("completed_orders")
-      .where("payout_done", "==", false)
-      .get();
+const {onRequest} = require("firebase-functions/v2/https");
+const express = require("express");
 
-    if (pendingSnap.empty) {
-      logger.info("✅ No pending payouts found");
-      return;
-    }
+const app = express();
+app.use(express.json());
 
-    logger.info(`🔍 Checking ${pendingSnap.size} pending payouts...`);
+// Pull your verify token from env
+// (we’ll inject this at deploy time)
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 
-    for (const doc of pendingSnap.docs) {
-      const data = doc.data();
-      const payoutId = data.payout_id;
+app.get("/whatsapp-webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
 
-      if (!payoutId) continue;
-
-      try {
-        const res = await fetch(`https://api.razorpay.com/v1/payouts/${payoutId}`, {
-          headers: {
-            "Authorization":
-              "Basic " +
-              Buffer.from(`${RZP_KEY_ID}:${RZP_KEY_SECRET}`).toString("base64"),
-          },
-        });
-
-        const result = await res.json();
-
-        if (!res.ok) {
-          logger.error("❌ Razorpay API error", result);
-          continue;
-        }
-
-        const status = result.status;
-
-        await doc.ref.update({
-          payout_status: status,
-          payout_done: status === "processed",
-          payout_updated_at: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        logger.info(`✅ Updated ${payoutId} → ${status}`);
-      } catch (err) {
-        logger.error(`⚠️ Error verifying payout ${payoutId}`, err);
-      }
-    }
-
-    logger.info("🎯 Payout verification complete");
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("✅ WEBHOOK_VERIFIED");
+    return res.status(200).send(challenge);
   }
+  console.error("❌ WEBHOOK_VERIFICATION_FAILED");
+  return res.sendStatus(403);
+});
+
+app.post("/whatsapp-webhook", (req, res) => {
+  const body = req.body;
+
+  if (body.object && Array.isArray(body.entry)) {
+    body.entry.forEach((entry) => {
+      (entry.changes || []).forEach((change) => {
+        const msgs = (change.value && change.value.messages) || [];
+        msgs.forEach((msg) => {
+          const incomingText = msg.text && msg.text.body;
+          console.log(`📩 From ${msg.from}:`, incomingText);
+          // → TODO: call your sendMessage(msg.from, reply) here
+        });
+      });
+    });
+    return res.status(200).send("EVENT_RECEIVED");
+  }
+
+  return res.sendStatus(404);
+});
+
+exports.whatsappWebhook = onRequest(
+    {region: "asia-south1"},
+    app,
 );

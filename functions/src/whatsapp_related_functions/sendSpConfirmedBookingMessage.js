@@ -14,8 +14,8 @@ admin.initializeApp();
 // These parameters reference the secrets you set via the CLI:
 // firebase functions:secrets:set WA_TOKEN
 // firebase functions:secrets:set WA_PHONE_NUMBER_ID
-const WA_TOKEN = defineSecret('WA_TOKEN');
-const WA_PHONE_NUMBER_ID = defineSecret('WA_PHONE_NUMBER_ID');
+const WA_TOKEN = defineSecret('WHATSAPP_ACCESS_TOKEN');
+const WA_PHONE_NUMBER_ID = defineSecret('WHATSAPP_PHONE_NUMBER_ID');
 
 /**
  * Sends a WhatsApp template message when 'sp_confirmation' changes to true.
