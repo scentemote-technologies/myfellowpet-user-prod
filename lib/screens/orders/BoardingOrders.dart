@@ -510,6 +510,86 @@ Future<void> handleCancel(
     gstRate: gstRate, // 👈 add this line
   );
 }
+Future<void> _triggerSpFullCancelPayout({
+  required String serviceId,
+  required String bookingId,
+}) async {
+  final firestore = FirebaseFirestore.instance;
+  final spDoc = await FirebaseFirestore.instance
+      .collection('users-sp-boarding')
+      .doc(serviceId)
+      .get();
+
+  final spData = spDoc.data();
+  if (spData == null) {
+    print('❌ SP data missing for $serviceId');
+    return;
+  }
+
+  final fundAccountId = spData['payout_fund_account_id'];
+  if (fundAccountId == null) {
+    print('❌ SP payout fund account NOT linked for $serviceId');
+    return;
+  }
+
+
+  // get booking data
+  final doc = await firestore
+      .collection('users-sp-boarding')
+      .doc(serviceId)
+      .collection('service_request_boarding')
+      .doc(bookingId)
+      .get();
+
+  if (!doc.exists) return;
+  final data = doc.data() as Map<String, dynamic>;
+
+  // 1️⃣ Base SP fee EXCLUDING GST
+  final baseStr = data['sp_service_fee_exc_gst']?.toString() ?? '0';
+  final baseFee = double.tryParse(baseStr) ?? 0.0;
+
+  // 2️⃣ Sum refunds (EX GST)
+  Future<double> sumRefunds(String col) async {
+    final qs = await doc.reference.collection(col).get();
+    double total = 0.0;
+    for (final d in qs.docs) {
+      final raw = d['net_refund_excluding_gst']?.toString() ?? '0';
+      total += double.tryParse(raw) ?? 0.0;
+    }
+    return total;
+  }
+
+  final userRefund = await sumRefunds('user_cancellation_history');
+  final spRefund   = await sumRefunds('sp_cancellation_history');
+
+  final totalRefund = userRefund + spRefund;
+
+  // 3️⃣ Payout before commission
+  double payout = baseFee - totalRefund;
+  if (payout < 0) payout = 0;
+
+  // 4️⃣ Apply admin commission
+  const commissionRate = 10;  // (your value)
+  final commissionAmount = payout * commissionRate / 100;
+  final finalPayout = payout - commissionAmount;
+
+  // 5️⃣ Trigger Razorpay Payout (Cloud Function)
+  final url = "https://us-central1-petproject-test-g.cloudfunctions.net/v2initiatePayout";
+
+  await http.post(
+    Uri.parse(url),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      "serviceProviderId": serviceId,
+      "fundAccountId": fundAccountId,
+      "orderId": bookingId,
+      "amount": (finalPayout * 100).toInt(), // paise
+    }),
+  );
+
+  print("💸 SP payout triggered after full cancel: ₹$finalPayout");
+}
+
 void showCancellationInvoiceDialog({
   required BuildContext context,
   required Map<DateTime,List<String>> cancellations,
@@ -1161,6 +1241,12 @@ void showCancellationInvoiceDialog({
                                         .doc(serviceId)
                                         .collection('service_request_boarding')
                                         .doc(bookingDoc.id);
+                                    // ⚡ Trigger SP payout BEFORE moving booking
+                                    await _triggerSpFullCancelPayout(
+                                      serviceId: serviceId,
+                                      bookingId: bookingDoc.id,
+                                    );
+
 
                                     final destRef = firestore
                                         .collection('users-sp-boarding')

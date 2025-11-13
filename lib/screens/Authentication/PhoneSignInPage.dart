@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../HomeScreen/HomeScreen.dart';
 import 'FirstTimeUserLoginDeyts.dart';
@@ -113,6 +114,15 @@ class _PhoneAuthPageState extends State<PhoneAuthPage> {
       _showError('Something went wrong. Please check your connection.');
     }
   }
+  Future<String?> _getTermsLink() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('settings')
+        .doc('policies')
+        .get();
+
+    return doc.data()?['terms_and_conditions'] as String?;
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -279,6 +289,48 @@ class _PhoneAuthPageState extends State<PhoneAuthPage> {
                           ),
                         ),
                       ),
+                      SizedBox(height: 18),
+
+                      FutureBuilder<String?>(
+                        future: _getTermsLink(),
+                        builder: (context, snapshot) {
+                          final termsUrl = snapshot.data;
+
+                          return GestureDetector(
+                            onTap: () {
+                              if (termsUrl != null) {
+                                launchUrl(Uri.parse(termsUrl), mode: LaunchMode.externalApplication);
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              child: RichText(
+                                textAlign: TextAlign.center,
+                                text: TextSpan(
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 12.8,
+                                    color: Colors.grey.shade600,
+                                    height: 1.5,
+                                  ),
+                                  children: [
+                                    const TextSpan(text: "By continuing, you agree to "),
+                                    TextSpan(
+                                      text: "MyFellowPet’s Terms & Conditions",
+                                      style: GoogleFonts.poppins(
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF25ADAD),   // primary color
+                                        decoration: TextDecoration.underline,  // underline link
+                                      ),
+                                    ),
+                                    const TextSpan(text: " and all app policies."),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
                     ],
                   ),
                 ),

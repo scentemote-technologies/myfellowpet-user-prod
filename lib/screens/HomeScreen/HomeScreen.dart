@@ -162,10 +162,6 @@ class _HomeScreenState extends State<HomeScreen> {
     parent?.goToTab(1);
   }
 
-  void _goToStoreTab() {
-    final parent = context.findAncestorStateOfType<HomeWithTabsState>();
-    parent?.goToTab(2);
-  }
 
   @override
   void didChangeDependencies() {
@@ -197,7 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Service(
                 title: 'Pet Store',
                 imagePath: tileImages['store'] ?? '',
-                destination: const PetStoreHomePage(),
+                destination: const ComingSoonServicePage(serviceName: 'Pet Store'),
               ),
               Service(
                 title: 'Pet Walks',
@@ -328,9 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
         } else {
           if (service.title == 'Boarding') {
             _goToBoardingTab();
-          } else if (service.title == 'Pet Store') {
-            _goToStoreTab();
-          } else {
+          }  else {
             Navigator.push(
                 context, MaterialPageRoute(builder: (_) => service.destination));
           }
@@ -429,25 +423,30 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // FOOTER
-  // ---------------------------------------------------------------------------
   SliverToBoxAdapter _buildFooter() {
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32.0),
+        padding: const EdgeInsets.fromLTRB(16, 40, 16, 32),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center, // CENTER ALIGN
           children: [
             Text(
-              'with love,',
-              style: GoogleFonts.pacifico(
-                  fontSize: 24, color: Colors.grey.shade600),
+              'With love ❤️',
+              style: GoogleFonts.poppins(
+                fontSize: 20,            // BIGGER
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade600,
+              ),
             ),
+            const SizedBox(height: 6),
             Text(
               'MyFellowPet',
-              style: GoogleFonts.pacifico(
-                  fontSize: 32, color: Colors.grey.shade800),
+              style: GoogleFonts.poppins(
+                fontSize: 28,            // BIGGER NAME
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+                height: 1.1,
+              ),
             ),
           ],
         ),

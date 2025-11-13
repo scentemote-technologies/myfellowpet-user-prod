@@ -1531,7 +1531,7 @@ class _SummaryPageState extends State<SummaryPage> {
     );
   }
 
-  Widget _buildMainActionsRow() {
+  Widget _buildMainActionsRow(bool checkoutEnabled) {
     return Row(
       children: [
         Expanded(
@@ -1549,10 +1549,8 @@ class _SummaryPageState extends State<SummaryPage> {
         ),
         const SizedBox(width: 4),
         Expanded(
-          child: _actionDialogButton(
-            "Invoice",
-            _showInvoiceDialog,
-          ),
+          child: _actionDialogButton("Invoice", () => _showInvoiceDialog(checkoutEnabled)),
+
         ),
       ],
     );
@@ -1702,7 +1700,7 @@ class _SummaryPageState extends State<SummaryPage> {
     );
   }
 
-  void _showInvoiceDialog() {
+  void _showInvoiceDialog(bool checkoutEnabled) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1789,8 +1787,13 @@ class _SummaryPageState extends State<SummaryPage> {
                                 serviceSubTotal * (fees.gstPercentage / 100);
                             final double platformFeeTotal =
                                 fees.platformFeePreGst + fees.platformFeeGst;
-                            final double grandTotal =
-                                serviceSubTotal + serviceGst + platformFeeTotal;
+                            double grandTotal;
+
+                            if (checkoutEnabled) {
+                              grandTotal = serviceSubTotal + serviceGst + platformFeeTotal;
+                            } else {
+                              grandTotal = serviceSubTotal + serviceGst;
+                            }
 
                             return ListView(
                               controller: scrollController,
@@ -1810,10 +1813,10 @@ class _SummaryPageState extends State<SummaryPage> {
                                 _buildItemRow(
                                     'GST (${fees.gstPercentage.toStringAsFixed(0)}%) on Service',
                                     serviceGst),
-                                _buildItemRow('Platform Fee (Pre-GST)',
-                                    fees.platformFeePreGst),
-                                _buildItemRow(
-                                    'GST on Platform Fee', fees.platformFeeGst),
+                                if (checkoutEnabled) ...[
+                                  _buildItemRow('Platform Fee (Pre-GST)', fees.platformFeePreGst),
+                                  _buildItemRow('GST on Platform Fee', fees.platformFeeGst),
+                                ],
                                 const SizedBox(height: 14),
                                 Divider(
                                     color: Colors.grey.shade400,
@@ -2051,8 +2054,6 @@ class _SummaryPageState extends State<SummaryPage> {
         if (!feesSnap.hasData) return const SizedBox.shrink();
         final fees = feesSnap.data!;
         final double serviceGst = subTotalService * (fees.gstPercentage / 100);
-        final double grandTotal =
-            subTotalService + serviceGst + fees.platformFeePreGst + fees.platformFeeGst;
 
         return StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
@@ -2065,6 +2066,16 @@ class _SummaryPageState extends State<SummaryPage> {
                 (paySnap.data?.data() as Map<String, dynamic>?) ?? {};
             final checkoutEnabled =
                 paymentData['checkoutEnabled'] as bool? ?? false;
+            double grandTotal;
+
+            if (checkoutEnabled) {
+              // normal online checkout → include platform fee
+              grandTotal = subTotalService + serviceGst + fees.platformFeePreGst + fees.platformFeeGst;
+            } else {
+              // direct payment → NO platform fee
+              grandTotal = subTotalService + serviceGst;
+            }
+
 
             return StreamBuilder<DocumentSnapshot>(
               stream: FirebaseFirestore.instance
@@ -2101,7 +2112,7 @@ class _SummaryPageState extends State<SummaryPage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _buildMainActionsRow(),
+                        _buildMainActionsRow(checkoutEnabled),
                         const Divider(),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 24.0),

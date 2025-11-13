@@ -24,11 +24,6 @@ class BottomNavigationBarWidget extends StatelessWidget {
       'label': 'Boarding',
     },
     {
-      'activeImage': 'assets/BottomBarBoarding/StoreActiveIcon.png',
-      'inactiveImage': 'assets/BottomBarBoarding/StoreInactiveIcon.png',
-      'label': 'Store',
-    },
-    {
       'activeImage': 'assets/yourpetsbottombaractive.png',
       'inactiveImage': 'assets/yourpetsbottombarinactive.jpg',
       'label': 'Pets',

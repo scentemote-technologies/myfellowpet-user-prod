@@ -516,7 +516,7 @@ class HomeWithTabsState extends State<HomeWithTabs> {
         initialSearchFocus: _boardingFilterData != null,
         initialBoardingFilter: _boardingFilterData,
       ),
-      PetStoreHomePage(),
+     // PetStoreHomePage(),
       AllPetsPage(),
       BoardingOrders(userId: FirebaseAuth.instance.currentUser?.uid ?? ''),
     ];
