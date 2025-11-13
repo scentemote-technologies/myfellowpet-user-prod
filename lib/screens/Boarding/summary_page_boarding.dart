@@ -29,6 +29,7 @@ class SummaryPage extends StatefulWidget {
   static const routeName = '/summary';
   final String serviceId, shopImage, shopName, walkingFee, sp_id, bookingId;
   final DateTime? startDate, endDate;
+  final List<Map<String, dynamic>> petCostBreakdown;
   final double totalCost;
   final double? transportCost, pickupDistance, dropoffDistance, foodCost, walkingCost;
   final bool? dailyWalkingRequired, pickupRequired, dropoffRequired;
@@ -39,7 +40,7 @@ class SummaryPage extends StatefulWidget {
   final GeoPoint sp_location;
   final Map<String, dynamic>? foodInfo;
   final String mode;
-  final Map<String, int> mealRates;
+  final Map<String, int> mealRates, dailyRates;
   final Map<String, int> refundPolicy;
   final String fullAddress;
   final double boarding_rate;
@@ -85,7 +86,10 @@ class SummaryPage extends StatefulWidget {
     required this.fullAddress,
     required this.walkingRates,
     required this.walkingFee,
-    required this.petSizesList, required this.boarding_rate,
+    required this.petSizesList,
+    required this.boarding_rate,
+    required this.dailyRates,
+    required this.petCostBreakdown, // <<< ADDED
   });
 
   @override
@@ -882,6 +886,7 @@ class _SummaryPageState extends State<SummaryPage> {
         context,
         MaterialPageRoute(
           builder: (_) => ConfirmationPage(
+            dailyRates: widget.dailyRates,
             perDayServices: widget.perDayServices,
             sortedDates: _sortedDates,
             buildOpenHoursWidget: buildOpenHoursWidget(
@@ -906,6 +911,8 @@ class _SummaryPageState extends State<SummaryPage> {
             walkingRates: widget.walkingRates,
             fullAddress: widget.fullAddress,
             sp_location: widget.sp_location,
+            // ✨ PASS THE NEW BREAKDOWN HERE
+            petCostBreakdown: widget.petCostBreakdown,
           ),
         ),
       );
@@ -1227,7 +1234,8 @@ class _SummaryPageState extends State<SummaryPage> {
             walkingRates: widget.walkingRates,
             fullAddress: widget.fullAddress,
             sp_location: widget.sp_location,
-            fromSummary: true,
+            fromSummary: true, dailyRates: widget.dailyRates,
+            petCostBreakdown: widget.petCostBreakdown,
           ),
         ),
       );
@@ -1704,18 +1712,19 @@ class _SummaryPageState extends State<SummaryPage> {
 
         return StatefulBuilder(
           builder: (context, setState) {
-            double newBoardingCost = 0.0;
-            // ✨ CRITICAL FIX: Calculate the total boarding cost here
-            final datesCount = widget.selectedDates.length;
-            for (final pet in widget.petSizesList) {
-              final boardingRatePerDay = (pet['price'] as double?) ?? 0.0;
-              newBoardingCost += boardingRatePerDay * datesCount;
-            }
+            final double newBoardingCost = widget.petCostBreakdown
+                .map<double>((m) => m['totalBoardingCost'] as double? ?? 0.0)
+                .fold(0.0, (prev, current) => prev + current);
 
-            final double serviceSubTotal = newBoardingCost +
-                (widget.foodCost ?? 0) +
-                (widget.walkingCost ?? 0) +
-                (widget.transportCost ?? 0);
+            final double newMealsCost = widget.petCostBreakdown
+                .map<double>((m) => m['totalMealCost'] as double? ?? 0.0)
+                .fold(0.0, (prev, current) => prev + current);
+
+            final double newWalkingCost = widget.petCostBreakdown
+                .map<double>((m) => m['totalWalkingCost'] as double? ?? 0.0)
+                .fold(0.0, (prev, current) => prev + current);
+
+            final double serviceSubTotal = newBoardingCost + newMealsCost + newWalkingCost;
 
             return DraggableScrollableSheet(
               expand: false,
@@ -1790,15 +1799,10 @@ class _SummaryPageState extends State<SummaryPage> {
                               children: [
                                 _buildItemRow(
                                     'Boarding Fee (Pre-GST)', newBoardingCost),
-                                if ((widget.foodCost ?? 0) > 0)
                                   _buildItemRow(
-                                      'Meal Fee (Pre-GST)', widget.foodCost!),
-                                if ((widget.walkingCost ?? 0) > 0)
+                                      'Meal Fee (Pre-GST)', newMealsCost),
                                   _buildItemRow('Walking Fee (Pre-GST)',
-                                      widget.walkingCost!),
-                                if ((widget.transportCost ?? 0) > 0)
-                                  _buildItemRow(
-                                      'Transport Fee', widget.transportCost!),
+                                      newWalkingCost),
                                 const SizedBox(height: 10),
                                 Divider(
                                     color: Colors.grey.shade300, thickness: 1),
@@ -1832,7 +1836,7 @@ class _SummaryPageState extends State<SummaryPage> {
                                           style: GoogleFonts.poppins(
                                             fontSize: 14,
                                             fontWeight: FontWeight.w600,
-                                            color: Colors.teal.shade700,
+                                            color: Colors.grey.shade900,
                                           ),
                                         ),
                                         const SizedBox(width: 4),
@@ -1840,7 +1844,7 @@ class _SummaryPageState extends State<SummaryPage> {
                                           showPetDetails
                                               ? Icons.expand_less
                                               : Icons.expand_more,
-                                          color: Colors.teal.shade700,
+                                          color: AppColors.primaryColor,
                                         ),
                                       ],
                                     ),
@@ -2455,29 +2459,46 @@ class _SummaryPageState extends State<SummaryPage> {
     return Column(
       children: List.generate(widget.petIds.length, (index) {
         final petId = widget.petIds[index];
-        final petName =
-        widget.petNames[index];
+        final petName = widget.petNames[index];
         final serviceDetails = widget.perDayServices[petId];
 
         if (serviceDetails == null) {
           return const SizedBox.shrink();
         }
 
-        final dailyDetails =
-        serviceDetails['dailyDetails'] as Map<String, dynamic>;
+        final dailyDetails = serviceDetails['dailyDetails'] as Map<String, dynamic>;
         final petSize = serviceDetails['size'] as String;
         final List<Widget> dailyRows = [];
         final sortedDates = dailyDetails.keys.toList()
           ..sort((a, b) => a.compareTo(b));
-        final double boardingRate = (widget.boarding_rate);
-        final double walkingRate = (widget.walkingRates[petSize] ?? 0).toDouble();
-        final double mealRate = (widget.mealRates[petSize] ?? 0).toDouble();
 
+        final days = sortedDates.length.toDouble().clamp(1, double.infinity);
+
+        // 1. Find the pet's entry in the reliable petCostBreakdown list.
+        final breakdownEntry = widget.petCostBreakdown
+            .map((e) => Map<String, dynamic>.from(e)) // Robust Map cast
+            .where((b) => b['id'] == petId)
+            .singleOrNull; // Use singleOrNull for safe retrieval (or firstWhere/orElse if unavailable)
+
+        // Ensure the entry is valid before accessing totals
+        final bool entryIsValid = breakdownEntry != null && breakdownEntry.isNotEmpty;
+
+        // 2. Derive Per-Day Rates from the breakdown TOTALS.
+        final double totalBoardingCost = entryIsValid ? (breakdownEntry['boardingCost'] as double? ?? 0.0) : 0.0;
+        final double totalWalkingCost = entryIsValid ? (breakdownEntry['walkingCost'] as double? ?? 0.0) : 0.0;
+        final double totalMealCost = entryIsValid ? (breakdownEntry['mealCost'] as double? ?? 0.0) : 0.0;
+
+        // Calculate Per-Day Rate (Total Cost / Total Days).
+        // We assume if a service was booked for a pet, the cost is spread evenly across all days.
+        final double boardingRatePerDay = entryIsValid ? (breakdownEntry['boardingRatePerDay'] as double? ?? 0.0) : 0.0;
+        final double walkingRatePerDay = entryIsValid ? (breakdownEntry['walkingRatePerDay'] as double? ?? 0.0) : 0.0;
+        final double mealRatePerDay = entryIsValid ? (breakdownEntry['mealRatePerDay'] as double? ?? 0.0) : 0.0;
         for (final dateString in sortedDates) {
           final date = DateFormat('yyyy-MM-dd').parse(dateString);
           final daily = dailyDetails[dateString] as Map<String, dynamic>;
           final bool hasWalk = daily['walk'] ?? false;
           final bool hasMeals = daily['meals'] ?? false;
+
           dailyRows.add(
             Padding(
               padding: const EdgeInsets.only(top: 8.0),
@@ -2493,10 +2514,18 @@ class _SummaryPageState extends State<SummaryPage> {
                     padding: const EdgeInsets.only(left: 16.0),
                     child: Column(
                       children: [
-                        _buildItemRow('Boarding', boardingRate),
+                        // ... inside the loop (dateString in sortedDates)
+
+                        // Boarding is always charged per day
+                        // --- FIX: Use the Per-Day Rate ---
+                        _buildItemRow('Boarding', boardingRatePerDay),
+                        // Walk/Meals are only charged if the per-day flag is set
                         if (hasWalk)
-                          _buildItemRow('Daily Walking', walkingRate),
-                        if (hasMeals) _buildItemRow('Meals', mealRate),
+                          _buildItemRow('Daily Walking', walkingRatePerDay),
+                        if (hasMeals)
+                          _buildItemRow('Meals', mealRatePerDay),
+                        // --------------------------------
+                        // Boarding is always charged per day
                       ],
                     ),
                   ),

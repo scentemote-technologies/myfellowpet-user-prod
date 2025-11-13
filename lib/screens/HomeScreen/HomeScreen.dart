@@ -522,6 +522,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // lib/screens/HomeScreen/HomeScreen.dart (inside _HomeScreenState)
+
   Widget _buildPetList(List<Pet> pets) {
     const int maxShown = 5;
     final displayList = pets.take(maxShown).toList();
@@ -554,10 +556,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         height: 1.2))),
             const VerticalDivider(
                 color: Colors.black26, thickness: 1, indent: 10, endIndent: 10),
-            const SizedBox(width: 6),
+            // REMOVED: const SizedBox(width: 6), // Removed to prevent overflow
             Expanded(
                 child: ListView.builder(
                     scrollDirection: Axis.horizontal,
+                    // ADDED: Padding to maintain spacing after the divider
+                    padding: const EdgeInsets.only(left: 6, right: 6),
                     itemCount: displayList.length + (extraCount > 0 ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (index == displayList.length)
@@ -569,7 +573,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // lib/screens/HomeScreen/HomeScreen.dart (inside _buildPetAvatar)
+
   Widget _buildPetAvatar(Pet pet) {
+    // Use a reliable boolean check for the image source
+    final bool hasValidImage = pet.imageUrl.isNotEmpty && pet.imageUrl.startsWith('http');
+
+    // Use a single image container with CachedNetworkImage
+    final Widget petImage = hasValidImage
+        ? CachedNetworkImage(
+      imageUrl: pet.imageUrl,
+      fit: BoxFit.cover,
+      // Fallback widget on load failure/error
+      errorWidget: (context, url, error) => const Icon(
+        Icons.pets,
+        size: 28,
+        color: AppColors.black,
+      ),
+      placeholder: (context, url) => Container(color: Colors.grey.shade200),
+    )
+        : const Icon(
+      Icons.pets,
+      size: 28,
+      color: AppColors.black,
+    );
+
     return Tooltip(
       message: pet.name,
       child: GestureDetector(
@@ -599,14 +627,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: Colors.white,
                       ),
                       child: ClipOval(
-                        child: Image(
-                          image: CachedNetworkImageProvider(
-                            pet.imageUrl.isNotEmpty
-                                ? pet.imageUrl
-                                : 'https://via.placeholder.com/150',
-                          ),
-                          fit: BoxFit.contain, // 👈 This makes sure it fits nicely
-                        ),
+                        // Use the unified image widget here
+                        child: petImage,
                       ),
                     ),
                   ),
@@ -830,7 +852,7 @@ class _ActiveOrderBannerState extends State<ActiveOrderBanner> with SingleTicker
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 600),
               width: _isBannerCollapsed ? 64 : MediaQuery.of(context).size.width,
-              height: _isBannerCollapsed ? 64 : null,
+              height: _isBannerCollapsed ? 64 : 250,
               decoration: BoxDecoration(
                 color: Colors.transparent,
                 borderRadius:
@@ -879,9 +901,15 @@ class _ActiveOrderBannerState extends State<ActiveOrderBanner> with SingleTicker
       final spLocation = data['sp_location'] as GeoPoint? ?? const GeoPoint(0, 0);
 
       // Extract Rates (requires proper structure in DB for simplicity here)
-      final Map<String, int> mealRates = {};
-      final Map<String, int> walkingRates = {};
+      final mealRates = Map<String, int>.from(data['mealRates'] ?? {});
+      final walkingRates =
+      Map<String, int>.from(data['walkingRates'] ?? {});
+      final dailyRates =
+      Map<String, int>.from(data['rates_daily'] ?? {});
       final List<dynamic> petSizesList = data['pet_sizes'] ?? [];
+      // ✨ CRITICAL: Retrieve the pre-calculated breakdown from the document
+      final petCostBreakdown = List<Map<String, dynamic>>.from(data['petCostBreakdown'] ?? []);
+
 
       // Fetch perDayServices subcollection
       final Map<String, dynamic> perDayServices = {};
@@ -928,7 +956,9 @@ class _ActiveOrderBannerState extends State<ActiveOrderBanner> with SingleTicker
             buildOpenHoursWidget: buildOpenHoursWidget(openTime, closeTime, dates),
             sortedDates: sortedDates,
             petImages: petImages,
-            serviceId: serviceId,
+            serviceId: serviceId, dailyRates: dailyRates,
+            petCostBreakdown: petCostBreakdown,
+
           ),
         ),
       );

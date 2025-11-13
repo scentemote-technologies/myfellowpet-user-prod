@@ -271,150 +271,128 @@ class _OtpInputPageState extends State<OtpInputPage> {
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        iconTheme: IconThemeData(color: Colors.black),
+        iconTheme: const IconThemeData(color: Colors.black),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Enter the 6-digit verification code sent to',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey.shade600),
-              ),
-              Text(
-                widget.phoneNumber,
-                textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-              ),
-              SizedBox(height: 48),
-
-              // ─── OTP Pin Fields ──────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                child: PinCodeTextField(
-                  appContext: context,
-                  length: 6,
-                  controller: _pinController,
-                  animationType: AnimationType.fade,
-                  keyboardType: TextInputType.number,
-                  autoFocus: true,
-                  obscureText: false,
-                  cursorColor: _primaryColor,
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  onChanged: (value) {},
-                  onCompleted: _verifyPin,
-                  pinTheme: PinTheme(
-                    shape: PinCodeFieldShape.box,
-                    fieldHeight: 55,
-                    fieldWidth: 45,
-                    borderRadius: BorderRadius.circular(12),
-                    activeColor: _primaryColor, // Filled color for active field
-                    selectedColor: _primaryColor.withOpacity(0.5), // Color when selected
-                    inactiveColor: Colors.grey.shade300, // Border color for inactive
-                    activeFillColor: _primaryColor.withOpacity(0.05), // Light background when active
-                    selectedFillColor: Colors.white, // Background when selected
-                    inactiveFillColor: Colors.grey.shade50, // Background for inactive
-                    fieldOuterPadding: EdgeInsets.zero,
+        child: SingleChildScrollView( // 👈 Makes everything scrollable
+          physics: const BouncingScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Enter the 6-digit verification code sent to',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    color: Colors.grey.shade600,
                   ),
-                  textStyle: GoogleFonts.poppins(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
+                ),
+                Text(
+                  widget.phoneNumber,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                     color: Colors.black87,
                   ),
-                  enableActiveFill: true,
-                  autoDismissKeyboard: true,
                 ),
-              ),
-              SizedBox(height: 32),
+                const SizedBox(height: 48),
 
-              // ─── Resend/Loading Section ──────────────────────────────
-              Center(
-                child: _verifying
-                    ? CircularProgressIndicator(
-                  color: _primaryColor,
-                  strokeWidth: 4,
-                )
-                    : Column(
-                  children: [
-                    Text(
-                      "Didn't receive the code?",
-                      style: GoogleFonts.poppins(
-                        color: Colors.grey.shade600,
-                        fontSize: 14,
-                      ),
+                // ─── OTP Pin Fields ──────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                  child: PinCodeTextField(
+                    appContext: context,
+                    length: 6,
+                    controller: _pinController,
+                    animationType: AnimationType.fade,
+                    keyboardType: TextInputType.number,
+                    autoFocus: true,
+                    obscureText: false,
+                    cursorColor: _primaryColor,
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    onChanged: (value) {},
+                    onCompleted: _verifyPin,
+                    pinTheme: PinTheme(
+                      shape: PinCodeFieldShape.box,
+                      fieldHeight: 55,
+                      fieldWidth: 45,
+                      borderRadius: BorderRadius.circular(12),
+                      activeColor: _primaryColor,
+                      selectedColor: _primaryColor.withOpacity(0.5),
+                      inactiveColor: Colors.grey.shade300,
+                      activeFillColor: _primaryColor.withOpacity(0.05),
+                      selectedFillColor: Colors.white,
+                      inactiveFillColor: Colors.grey.shade50,
+                      fieldOuterPadding: EdgeInsets.zero,
                     ),
-                    const SizedBox(height: 8),
-                    _canResend
-                        ? TextButton(
-                      onPressed: _resendCode,
-                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                      child: Text(
-                        'Resend Code',
+                    textStyle: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                    enableActiveFill: true,
+                    autoDismissKeyboard: true,
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // ─── Resend/Loading Section ──────────────────────────────
+                Center(
+                  child: _verifying
+                      ? CircularProgressIndicator(
+                    color: _primaryColor,
+                    strokeWidth: 4,
+                  )
+                      : Column(
+                    children: [
+                      Text(
+                        "Didn't receive the code?",
                         style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: _primaryColor,
+                          color: Colors.grey.shade600,
+                          fontSize: 14,
                         ),
                       ),
-                    )
-                        : Text(
-                      'Resend available in $_secondsLeft seconds',
-                      style: GoogleFonts.poppins(
-                        color: Colors.grey.shade500,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // 💡 Added “Try with PIN” persistent option
-                    TextButton(
-                      onPressed: () async {
-                        final user = FirebaseAuth.instance.currentUser;
-                        if (user == null) {
-                          _showSnackbar("Please verify your number again.");
-                          return;
-                        }
-
-                        final userDoc = await FirebaseFirestore.instance
-                            .collection('users')
-                            .doc(user.uid)
-                            .get();
-
-                        if (userDoc.exists &&
-                            (userDoc.data()?['account_status'] == 'locked')) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PinGatePage(uid: user.uid),
-                            ),
-                          );
-                        } else {
-                          _showSnackbar("Your account is not locked. Please verify OTP.");
-                        }
-                      },
-                      child: Text(
-                        'Try with your PIN instead',
+                      const SizedBox(height: 8),
+                      _canResend
+                          ? TextButton(
+                        onPressed: _resendCode,
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: Text(
+                          'Resend Code',
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: _primaryColor,
+                          ),
+                        ),
+                      )
+                          : Text(
+                        'Resend available in $_secondsLeft seconds',
                         style: GoogleFonts.poppins(
-                          color: _primaryColor,
-                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade500,
                           fontSize: 15,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
+                      const SizedBox(height: 20),
 
-            ],
+
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+
 }
 
 

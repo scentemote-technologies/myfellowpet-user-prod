@@ -368,91 +368,158 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
     }
   }
 
+
+// Note: If you still need GoogleFonts, uncomment the import below and
+// replace 'TextStyle' with 'GoogleFonts.poppins(...)' as in your original code.
+// import 'package:google_fonts/google_fonts.dart';
+
   void _showPetWarningDialog(BuildContext context, List<Map<String, String>> rejectedPets) {
+    // Define custom brand color
+    const Color brandPrimary = AppColors.primaryColor;
+    const Color warningColor = Color(0xFFFF0000); // Light Red/Warning tone
+
+    // Use a modern AlertDialog for better adherence to platform standards
+    // and a cleaner, white background look.
     showDialog(
       context: context,
+      // ---------------------------------------------------
       barrierDismissible: true,
       builder: (ctx) {
-        const Color brandPrimary = Color(0xFF2CB4B6);
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          // The default AlertDialog has a clean white background and elevation.
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.black87)),
+          titlePadding: EdgeInsets.zero,
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 16), // Padding for the content column
 
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          elevation: 10,
-          child: Container(
-            padding: const EdgeInsets.all(24),
+          // Wrap content in SingleChildScrollView for responsiveness on small screens
+          content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                // 1. Icon Header
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(16), // Increased padding for a bolder look
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: brandPrimary.withOpacity(0.1),
                   ),
-                  child: Icon(Icons.pets_outlined, color: brandPrimary, size: 36),
+                  child: const Icon(
+                    Icons.pets_outlined,
+                    color: brandPrimary,
+                    size: 36,
+                  ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
+
+                // 2. Title
                 Text(
                   "Booking Compatibility Check",
-                  style: GoogleFonts.poppins(
-                    fontSize: 18,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: Colors.black87,
+                    // For GoogleFonts: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.black87),
                   ),
                 ),
                 const SizedBox(height: 8),
+
+                // 3. Subtitle/Instruction
                 Text(
                   "Heads up! Some of your saved pets may not be listed as accepted by this provider. Please confirm with them before finalizing your booking.",
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Colors.grey.shade600,
                     height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Divider(color: Colors.grey.shade300, height: 1),
-                const SizedBox(height: 12),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 120),
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: rejectedPets.map((p) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      leading: const Icon(Icons.cancel_outlined, color: Colors.redAccent, size: 20),
-                      title: Text(
-                        p['name']!,
-                        style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87),
-                      ),
-                      trailing: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          p['type']!,
-                          style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.red.shade700),
-                        ),
-                      ),
-                    )).toList(),
+                    // For GoogleFonts: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600, height: 1.4),
                   ),
                 ),
                 const SizedBox(height: 24),
+
+                // 4. Separator
+                Divider(color: Colors.grey.shade200, height: 1),
+                const SizedBox(height: 16),
+
+                // 5. Rejected Pets List (Refined UI)
+                // Added a label for clarity
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Pets Not Accepted:",
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 150), // Slightly taller constraint
+                  child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: rejectedPets.length,
+                      itemBuilder: (context, index) {
+                        final p = rejectedPets[index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0), // Space between items
+                          child: Row(
+                            children: [
+                              const Icon(Icons.warning_amber_rounded, color: warningColor, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  p['name']!,
+                                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.black87,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: warningColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: warningColor.withOpacity(0.3), width: 1),
+                                ),
+                                child: Text(
+                                  p['type']!,
+                                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: warningColor,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // 6. Action Button (CTA)
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () => Navigator.pop(ctx),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: brandPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16), // Slightly larger tap target
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 3,
+                      elevation: 5, // A bit more elevation for a professional feel
                     ),
                     child: Text(
                       "Proceed to Booking",
-                      style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 16),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
@@ -520,6 +587,119 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
           const SnackBar(content: Text("An error occurred."))
       );
     }
+  }
+
+  void _showBookingConfirmationDialog(BuildContext context, String selectedPetType, VoidCallback onConfirm) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Container(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.primaryColor.withOpacity(0.1),
+                  ),
+                  child: Icon(
+                    Icons.pets_rounded,
+                    color: AppColors.primaryColor,
+                    size: 36,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Confirm Pet Type',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // ✨ MODIFIED: Simplified RichText message
+                RichText(
+                  textAlign: TextAlign.center,
+                  text: TextSpan(
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      color: Colors.grey.shade700,
+                      height: 1.5,
+                    ),
+                    children: [
+                      const TextSpan(text: 'You are now proceeding with your booking using the pet type: '),
+                      TextSpan(
+                        text: selectedPetType, // This holds the pet type (e.g., "Dog")
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primaryColor,
+                        ),
+                      ),
+                      const TextSpan(text: '.'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: BorderSide(color: Colors.grey.shade300, width: 2),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: Text(
+                          'Cancel',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop();
+                          onConfirm(); // Execute the original navigation
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primaryColor,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 3,
+                        ),
+                        child: Text(
+                          'Proceed',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _fetchPetDocIds() async {
@@ -631,7 +811,13 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
         _fullAddress = serviceData['full_address'] ?? 'No address provided';
 
         _petDocIds = allPetPricing.map((p) => p.petName).toList();
-        _selectedPet ??= widget.initialSelectedPet ?? (_petDocIds.isNotEmpty ? _petDocIds.first : null);
+
+        // ✨ MODIFIED: Safely re-check and reset _selectedPet if it's null OR if the current value is no longer valid in the new list.
+        if (_selectedPet == null || !_petDocIds.contains(_selectedPet)) {
+          _selectedPet = widget.initialSelectedPet ?? (_petDocIds.isNotEmpty ? _petDocIds.first : null);
+        }
+
+        print('DEBUG STATE: Selected Pet: $_selectedPet, Available Pet IDs: $_petDocIds');
 
         if (_selectedPet == null) {
           return Scaffold(
@@ -910,12 +1096,36 @@ $_district, $_state - $_postalCode
                   offerWalkingRates: allOfferWalkingRates,
                   offerMealRates: allOfferMealRates,
                   initialSelectedPet: _selectedPet,
+                  // ✨ ADDED: Callback to update the state variable
+                  onPetSelected: (newPetId) {
+                    if (newPetId != null) {
+                      setState(() {
+                        _selectedPet = newPetId;
+                        // Also update the accepted sizes/breeds for PetVarietiesTable
+                        final newPetData = allPetPricing.firstWhere((p) => p.petName == newPetId);
+                        _acceptedSizes = newPetData.acceptedSizes;
+                        _acceptedBreeds = newPetData.acceptedBreeds;
+                      });
+                    }
+                  },
                 ),
                 const SizedBox(height: 16),
                 const SizedBox(height: 16),
                 FeedingInfoButton(
                   allFeedingDetails: allFeedingDetails,
                   initialSelectedPet: _selectedPet,
+                  // ✨ ADDED: Callback to update the state variable
+                  onPetSelected: (newPetId) {
+                    if (newPetId != null) {
+                      setState(() {
+                        _selectedPet = newPetId;
+                        // Also update the accepted sizes/breeds for PetVarietiesTable
+                        final newPetData = allPetPricing.firstWhere((p) => p.petName == newPetId);
+                        _acceptedSizes = newPetData.acceptedSizes;
+                        _acceptedBreeds = newPetData.acceptedBreeds;
+                      });
+                    }
+                  },
                 ),
                 SizedBox(height: 8),
                 Padding(
@@ -998,54 +1208,69 @@ $_district, $_state - $_postalCode
           bottomNavigationBar: _ActionFooter(
             design: _design,
             onPressed: () {
-              final selectedPetPricing = allPetPricing.firstWhere((p) => p.petName == _selectedPet);
+              // Capture navigation logic into a single function
+              onConfirmNavigation() {
+                final selectedPetPricing = allPetPricing.firstWhere((p) => p.petName == _selectedPet);
 
-              final Map<String, int> dailyRatesToPass = (widget.isOfferActive
-                  ? selectedPetPricing.offerRatesDaily
-                  : selectedPetPricing.ratesDaily)
-                  .map((key, value) =>
-                  MapEntry(key, int.tryParse(value.toString()) ?? 0));
+                final Map<String, int> dailyRatesToPass = (widget.isOfferActive
+                    ? selectedPetPricing.offerRatesDaily
+                    : selectedPetPricing.ratesDaily)
+                    .map((key, value) =>
+                    MapEntry(key, int.tryParse(value.toString()) ?? 0));
 
-              final Map<String, int> mealRatesToPass = (widget.isOfferActive
-                  ? selectedPetPricing.offerMealRatesDaily
-                  : selectedPetPricing.mealRatesDaily)
-                  .map((key, value) =>
-                  MapEntry(key, int.tryParse(value.toString()) ?? 0));
+                final Map<String, int> mealRatesToPass = (widget.isOfferActive
+                    ? selectedPetPricing.offerMealRatesDaily
+                    : selectedPetPricing.mealRatesDaily)
+                    .map((key, value) =>
+                    MapEntry(key, int.tryParse(value.toString()) ?? 0));
 
-              final Map<String, int> walkingRatesToPass = (widget.isOfferActive
-                  ? selectedPetPricing.offerWalkingRatesDaily
-                  : selectedPetPricing.walkingRatesDaily)
-                  .map((key, value) =>
-                  MapEntry(key, int.tryParse(value.toString()) ?? 0));
+                final Map<String, int> walkingRatesToPass = (widget.isOfferActive
+                    ? selectedPetPricing.offerWalkingRatesDaily
+                    : selectedPetPricing.walkingRatesDaily)
+                    .map((key, value) =>
+                    MapEntry(key, int.tryParse(value.toString()) ?? 0));
 
-              final feedingDetailsToPass = Map<String, dynamic>.from(selectedPetPricing.feedingDetails);
+                final feedingDetailsToPass = Map<String, dynamic>.from(selectedPetPricing.feedingDetails);
 
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => BoardingParametersSelectionPage(
-                    max_pets_allowed: int.parse(_maxPetsAllowed),
-                    mode: widget.mode,
-                    open_time: _openTime,
-                    close_time: _closeTime,
-                    current_count_of_pet: _currentCountOfPet,
-                    initialSelectedPet: _selectedPet,
-                    shopName: widget.shopName,
-                    shopImage: widget.shopImage,
-                    sp_location: _location,
-                    companyName: _companyName,
-                    sp_id: _spId,
-                    walkingFee: _walkingFee,
-                    serviceId: _serviceId,
-                    rates: dailyRatesToPass,
-                    mealRates: mealRatesToPass,
-                    refundPolicy: _refundPolicy,
-                    fullAddress: _fullAddress,
-                    walkingRates: walkingRatesToPass,
-                    feedingDetails: feedingDetailsToPass,
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => BoardingParametersSelectionPage(
+                      max_pets_allowed: int.parse(_maxPetsAllowed),
+                      mode: widget.mode,
+                      open_time: _openTime,
+                      close_time: _closeTime,
+                      current_count_of_pet: _currentCountOfPet,
+                      initialSelectedPet: _selectedPet,
+                      shopName: widget.shopName,
+                      shopImage: widget.shopImage,
+                      sp_location: _location,
+                      companyName: _companyName,
+                      sp_id: _spId,
+                      walkingFee: _walkingFee,
+                      serviceId: _serviceId,
+                      rates: dailyRatesToPass,
+                      mealRates: mealRatesToPass,
+                      refundPolicy: _refundPolicy,
+                      fullAddress: _fullAddress,
+                      walkingRates: walkingRatesToPass,
+                      feedingDetails: feedingDetailsToPass,
+                    ),
                   ),
-                ),
-              );
+                );
+              }
+
+              // Check if a pet is selected and show confirmation dialog
+              if (_selectedPet != null) {
+                _showBookingConfirmationDialog(
+                  context,
+                  _selectedPet!.capitalize(), // Pass the capitalized pet type
+                  onConfirmNavigation,        // Pass the navigation function to execute on confirm
+                );
+              } else {
+                // Handle case where no pet is selected (shouldn't happen based on previous logic)
+                onConfirmNavigation();
+              }
             },
           ),
         );
@@ -2473,6 +2698,7 @@ class PetPricingTable extends StatefulWidget {
   final Map<String, Map<String, int>> offerWalkingRates;
   final Map<String, Map<String, int>> offerMealRates;
   final String? initialSelectedPet;
+  final Function(String)? onPetSelected;
 
   const PetPricingTable({
     Key? key,
@@ -2484,7 +2710,7 @@ class PetPricingTable extends StatefulWidget {
     required this.offerRatesDaily,
     required this.offerWalkingRates,
     required this.offerMealRates,
-    this.initialSelectedPet,
+    this.initialSelectedPet, this.onPetSelected,
   }) : super(key: key);
 
   @override
@@ -2677,6 +2903,8 @@ class _PetPricingTableState extends State<PetPricingTable> {
                             setState(() {
                               _selectedPet = newPet;
                             });
+                            // ✨ MODIFIED: Call the parent callback
+                            widget.onPetSelected?.call(newPet);
                           }
                         },
                       ),
@@ -3467,11 +3695,12 @@ class _SimpleMealCard extends StatelessWidget {
 class FeedingInfoButton extends StatelessWidget {
   final Map<String, Map<String, dynamic>> allFeedingDetails;
   final String? initialSelectedPet;
+  final Function(String)? onPetSelected;
 
   const FeedingInfoButton({
     Key? key,
     required this.allFeedingDetails,
-    required this.initialSelectedPet,
+    required this.initialSelectedPet, this.onPetSelected,
   }) : super(key: key);
 
   @override
@@ -3489,8 +3718,7 @@ class FeedingInfoButton extends StatelessWidget {
           minimumSize: const Size(double.infinity, 50),
         ),
         onPressed: () {
-          _showFeedingInfoDialog(context, allFeedingDetails, initialSelectedPet);
-        },
+          _showFeedingInfoDialog(context, allFeedingDetails, initialSelectedPet, onPetSelected);        },
         icon: const Icon(Icons.restaurant_menu_outlined, color: Colors.white),
         label: Text(
           "View Feeding Information",
@@ -3506,7 +3734,7 @@ class FeedingInfoButton extends StatelessWidget {
   // lib/screens/Boarding/boarding_servicedetailspage.dart -> in FeedingInfoButton
 
   void _showFeedingInfoDialog(
-      BuildContext context, Map<String, Map<String, dynamic>> allFeedingDetails, String? initialSelectedPet) {
+      BuildContext context, Map<String, Map<String, dynamic>> allFeedingDetails, String? initialSelectedPet,Function(String)? onPetSelected) {
     // Use initialSelectedPet for the *first build* if available, otherwise default to the first pet in the data.
     String selectedPetInDialog = initialSelectedPet ?? allFeedingDetails.keys.first;
     if (!allFeedingDetails.containsKey(selectedPetInDialog)) {
@@ -3570,6 +3798,8 @@ class FeedingInfoButton extends StatelessWidget {
                                 setState(() {
                                   selectedPetInDialog = newValue;
                                 });
+                                // ✨ ADDED: Call the parent callback
+                                onPetSelected?.call(newValue);
                               }
                             },
                           ),

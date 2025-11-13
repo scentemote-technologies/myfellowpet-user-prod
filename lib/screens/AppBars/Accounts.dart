@@ -8,8 +8,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app_colors.dart';
 import '../../preloaders/petpreloaders.dart';
 import '../Authentication/PhoneSignInPage.dart';
+import '../Authentication/chatgpt_integration.dart';
 import '../Boarding/hidden_boarding_services_page.dart';
 import '../Help_Center/sp_general_support_help_screen.dart';
+import '../MFPAI/ai_chat_page.dart';
 import 'AllPetsPage.dart';
 import 'EditProfilePage.dart';
 import '../Pets/AddPetPage.dart';
@@ -107,7 +109,46 @@ class _AccountsPageState extends State<AccountsPage> {
                       ),
 
                       // CALL CENTER ICON
-                      Container(
+                      GestureDetector(
+                        onTap: () async {
+                          try {
+                            // 🔹 Fetch support number from Firestore
+                            final doc = await FirebaseFirestore.instance
+                                .collection('settings')
+                                .doc('contact_details')
+                                .get();
+
+                            final whatsappNumber = doc.data()?['whatsapp_user_support_number'];
+                            if (whatsappNumber == null || whatsappNumber.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Support number not found')),
+                              );
+                              return;
+                            }
+
+                            // 🔹 Clean the number (remove '+' for wa.me link)
+                            final cleanNumber = whatsappNumber.replaceAll('+', '').trim();
+
+                            // 🔹 Create WhatsApp deep link
+                            final message = Uri.encodeComponent("Hey, I need help with my account 🐾");
+                            final whatsappUrl = Uri.parse("https://wa.me/$cleanNumber?text=$message");
+
+                            // 🔹 Open WhatsApp
+                            if (await canLaunchUrl(whatsappUrl)) {
+                              await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Could not open WhatsApp')),
+                              );
+                            }
+                          } catch (e) {
+                            debugPrint('❌ Error opening WhatsApp support: $e');
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Something went wrong. Please try again.')),
+                            );
+                          }
+                        },
+                        child: Container(
                         decoration: const BoxDecoration(
                           shape: BoxShape.circle,
                           color: Colors.white,
@@ -118,7 +159,7 @@ class _AccountsPageState extends State<AccountsPage> {
                           color: Colors.black,
                           size: 18,
                         ),
-                      ),
+                      ),),
                     ],
                   ),
 
@@ -414,6 +455,41 @@ class _AccountsPageState extends State<AccountsPage> {
                   context, MaterialPageRoute(builder: (_) => HiddenServicesPage())),
             ),
             Divider(),
+
+            ListTile(
+              title: Text(
+                'Link to AI',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              trailing: Icon(Icons.keyboard_arrow_right, color: AppColors.primary),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ConnectAIPage()),
+              ),
+            ),
+            /*Divider(),
+
+            ListTile(
+              title: Text(
+                'MyFellowPet Intelligence',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              trailing: Icon(Icons.keyboard_arrow_right, color: AppColors.primary),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AiChatPage()),
+              ),
+            ),*/
+
+            Divider(),
+
+
 
             // SIGN OUT
             ListTile(

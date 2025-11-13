@@ -10,6 +10,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 
+import '../../app_colors.dart';
 import '../../main.dart';
 import '../HomeScreen/HomeScreen.dart';
 import '../Orders/BoardingOrders.dart';
@@ -56,9 +57,13 @@ class ConfirmationPage extends StatefulWidget  {
   final double? walkingCost;
   final double? transportCost;
   final Map<String, int> mealRates;
+  final Map<String, int> dailyRates;
   final Map<String, int> walkingRates;
   final String fullAddress;
   final GeoPoint sp_location;
+
+  // NEW PARAMETER: Pet Cost Breakdown
+  final List<Map<String, dynamic>> petCostBreakdown;
 
   const ConfirmationPage({
     Key? key,
@@ -84,7 +89,8 @@ class ConfirmationPage extends StatefulWidget  {
     required this.mealRates,
     required this.walkingRates,
     required this.fullAddress,
-    required this.sp_location, required this.boarding_rate,
+    required this.sp_location, required this.boarding_rate, required this.dailyRates,
+    required this.petCostBreakdown, // <<< NEW PARAMETER
   }) : super(key: key);
 
   // --- Constants for Styling ---
@@ -431,63 +437,63 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
 
   Widget _shopHeader() {
     return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0),
-        child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.network(
-                  widget.shopImage,
-                  width: 60,
-                  height: 60,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    width: 60,
-                    height: 60,
-                    color: backgroundColor,
-                    child: const Icon(Icons.store, size: 30, color: lightTextColor),
-                  ),
-                ),
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.network(
+              widget.shopImage,
+              width: 60,
+              height: 60,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                width: 60,
+                height: 60,
+                color: backgroundColor,
+                child: const Icon(Icons.store, size: 30, color: lightTextColor),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.shopName,
+                  style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: darkColor),
+                ),
+                const SizedBox(height: 4),
+
+                // --- ADD THIS ROW ---
+                Row(
                   children: [
+                    Icon(
+                      Icons.access_time_rounded,
+                      size: 14,
+                      color: lightTextColor,
+                    ),
+                    const SizedBox(width: 4),
                     Text(
-                      widget.shopName,
-                      style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: darkColor),
+                      "${widget.openTime} - ${widget.closeTime}",
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: lightTextColor,
+                      ),
                     ),
-                    const SizedBox(height: 4),
-
-                    // --- ADD THIS ROW ---
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.access_time_rounded,
-                          size: 14,
-                          color: lightTextColor,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          "${widget.openTime} - ${widget.closeTime}",
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: lightTextColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    // --- END OF ADDITION ---
-
                   ],
                 ),
-              ),
-            ],
+                // --- END OF ADDITION ---
+
+              ],
             ),
-        );
-    }
+          ),
+        ],
+      ),
+    );
+  }
 
 
 
@@ -502,12 +508,19 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
 
         return StatefulBuilder(
           builder: (context, setState) {
-            double newBoardingCost = widget.boarding_rate;
+            final double newBoardingCost = widget.petCostBreakdown
+                .map<double>((m) => m['totalBoardingCost'] as double? ?? 0.0)
+                .fold(0.0, (prev, current) => prev + current);
 
-            final double serviceSubTotal = newBoardingCost +
-                (widget.foodCost ?? 0) +
-                (widget.walkingCost ?? 0) +
-                (widget.transportCost ?? 0);
+            final double newMealsCost = widget.petCostBreakdown
+                .map<double>((m) => m['totalMealCost'] as double? ?? 0.0)
+                .fold(0.0, (prev, current) => prev + current);
+
+            final double newWalkingCost = widget.petCostBreakdown
+                .map<double>((m) => m['totalWalkingCost'] as double? ?? 0.0)
+                .fold(0.0, (prev, current) => prev + current);
+
+            final double serviceSubTotal = newBoardingCost + newMealsCost + newWalkingCost;
 
             return DraggableScrollableSheet(
               expand: false,
@@ -574,19 +587,17 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                             final double platformFeeTotal =
                                 fees.platformFeePreGst + fees.platformFeeGst;
                             final double grandTotal =
-                                serviceSubTotal + serviceGst + platformFeeTotal;
+                                serviceSubTotal + serviceGst + platformFeeTotal; // Include transport in grand total
 
                             return ListView(
                               controller: scrollController,
                               padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
                               children: [
                                 _buildItemRow('Boarding Fee (Pre-GST)', newBoardingCost),
-                                if ((widget.foodCost ?? 0) > 0)
-                                  _buildItemRow('Meal Fee (Pre-GST)', widget.foodCost!),
-                                if ((widget.walkingCost ?? 0) > 0)
-                                  _buildItemRow('Walking Fee (Pre-GST)', widget.walkingCost!),
-                                if ((widget.transportCost ?? 0) > 0)
-                                  _buildItemRow('Transport Fee', widget.transportCost!),
+                                if (newMealsCost > 0)
+                                  _buildItemRow('Meal Fee (Pre-GST)', newMealsCost),
+                                if (newWalkingCost > 0)
+                                  _buildItemRow('Walking Fee (Pre-GST)', newWalkingCost),
 
                                 const SizedBox(height: 10),
                                 Divider(color: Colors.grey.shade300, thickness: 1),
@@ -619,7 +630,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                                           style: GoogleFonts.poppins(
                                             fontSize: 14,
                                             fontWeight: FontWeight.w600,
-                                            color: Colors.teal.shade700,
+                                            color: Colors.grey.shade900,
                                           ),
                                         ),
                                         const SizedBox(width: 4),
@@ -627,7 +638,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                                           showPetDetails
                                               ? Icons.expand_less
                                               : Icons.expand_more,
-                                          color: Colors.teal.shade700,
+                                          color: AppColors.primaryColor,
                                         ),
                                       ],
                                     ),
@@ -667,7 +678,6 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     return Column(
       children: List.generate(widget.petIds.length, (index) {
         final petId = widget.petIds[index];
-        // Access petName correctly
         final petName = widget.petNames[index];
         final serviceDetails = widget.perDayServices[petId];
 
@@ -681,13 +691,26 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
         final sortedDates = dailyDetails.keys.toList()
           ..sort((a, b) => a.compareTo(b));
 
-        // Correctly retrieve the daily rate from the widget properties
-        final double dailyBoardingRate = (widget.boarding_rate);
-        final double dailyWalkingRate = (widget.walkingRates[petSize] ?? 0).toDouble();
-        final double dailyMealRate = (widget.mealRates[petSize] ?? 0).toDouble();
+        final days = sortedDates.length.toDouble().clamp(1, double.infinity);
 
+        // 1. Find the pet's entry in the reliable petCostBreakdown list.
+        final breakdownEntry = widget.petCostBreakdown
+            .map((e) => Map<String, dynamic>.from(e)) // Robust Map cast
+            .where((b) => b['id'] == petId)
+            .singleOrNull; // Use singleOrNull for safe retrieval (or firstWhere/orElse if unavailable)
+
+        // Ensure the entry is valid before accessing totals
+        final bool entryIsValid = breakdownEntry != null && breakdownEntry.isNotEmpty;
+
+        // 2. Derive Per-Day Rates from the breakdown TOTALS.
+
+        // Calculate Per-Day Rate (Total Cost / Total Days).
+        // We assume if a service was booked for a pet, the cost is spread evenly across all days.
+        final double boardingRatePerDay = entryIsValid ? (breakdownEntry['boardingRatePerDay'] as double? ?? 0.0) : 0.0;
+        final double walkingRatePerDay = entryIsValid ? (breakdownEntry['walkingRatePerDay'] as double? ?? 0.0) : 0.0;
+        final double mealRatePerDay = entryIsValid ? (breakdownEntry['mealRatePerDay'] as double? ?? 0.0) : 0.0;
         for (final dateString in sortedDates) {
-          // final date = DateFormat('yyyy-MM-dd').parse(dateString); // Date not strictly needed for this loop's purpose
+          final date = DateFormat('yyyy-MM-dd').parse(dateString);
           final daily = dailyDetails[dateString] as Map<String, dynamic>;
           final bool hasWalk = daily['walk'] ?? false;
           final bool hasMeals = daily['meals'] ?? false;
@@ -698,22 +721,27 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '• ${DateFormat('EEEE, MMM d').format(DateFormat('yyyy-MM-dd').parse(dateString))}',
-                    style: GoogleFonts.poppins(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: darkColor,
-                    ),
-                  ),
+                  Text('• ${DateFormat('EEEE, MMM d').format(date)}',
+                      style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: darkColor)),
                   Padding(
                     padding: const EdgeInsets.only(left: 16.0),
                     child: Column(
                       children: [
-                        // Ensure these helper rows are correctly formatted and display the price
-                        _buildItemRow('Boarding', dailyBoardingRate),
-                        if (hasWalk) _buildItemRow('Daily Walking', dailyWalkingRate),
-                        if (hasMeals) _buildItemRow('Meals', dailyMealRate),
+                        // ... inside the loop (dateString in sortedDates)
+
+                        // Boarding is always charged per day
+                        // --- FIX: Use the Per-Day Rate ---
+                        _buildItemRow('Boarding', boardingRatePerDay),
+                        // Walk/Meals are only charged if the per-day flag is set
+                        if (hasWalk)
+                          _buildItemRow('Daily Walking', walkingRatePerDay),
+                        if (hasMeals)
+                          _buildItemRow('Meals', mealRatePerDay),
+                        // --------------------------------
+                        // Boarding is always charged per day
                       ],
                     ),
                   ),
@@ -731,10 +759,9 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
               Text(
                 'Pet: $petName ($petSize)',
                 style: GoogleFonts.poppins(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: secondaryColor,
-                ),
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: secondaryColor),
               ),
               ...dailyRows,
             ],
@@ -743,7 +770,6 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
       }),
     );
   }
-
 
   Widget _buildItemRow(String label, double amount, {bool isTotal = false}) {
     final textStyle = GoogleFonts.poppins(
@@ -968,83 +994,83 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     DateTime.now().isBefore(earliestDate.subtract(const Duration(hours: 24)));
 
     return PopScope(
-        canPop: false, // Prevents the default back action
-        onPopInvoked: (didPop) {
-      if (didPop) return; // If it already popped, do nothing
+      canPop: false, // Prevents the default back action
+      onPopInvoked: (didPop) {
+        if (didPop) return; // If it already popped, do nothing
 
-      // Only run this logic if `fromSummary` is true
-      if (widget.fromSummary) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-        Navigator.pushReplacement(context,
-            MaterialPageRoute(builder: (_) => HomeWithTabs()));
-        Future.microtask(() => _showTicketInfoDialog(context));
-      } else {
-        // Otherwise, just do a normal pop
-        Navigator.of(context).pop();
-      }
-    },
-    child: Scaffold(
-      backgroundColor: ConfirmationPage.backgroundColor,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: ConfirmationPage.primaryTextColor,
-        elevation: 1,
-        shadowColor: Colors.black.withOpacity(0.1),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => UserOrderSupportPage(
-                    initialOrderId: widget.bookingId,
-                    serviceId: widget.serviceId,
-                    shop_name: widget.shopName,
-                    user_phone_number: FirebaseAuth.instance.currentUser?.phoneNumber,
-                    user_uid: FirebaseAuth.instance.currentUser?.uid, // if you don’t store email, keep blank
+        // Only run this logic if `fromSummary` is true
+        if (widget.fromSummary) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+          Navigator.pushReplacement(context,
+              MaterialPageRoute(builder: (_) => HomeWithTabs()));
+          Future.microtask(() => _showTicketInfoDialog(context));
+        } else {
+          // Otherwise, just do a normal pop
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: ConfirmationPage.backgroundColor,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          foregroundColor: ConfirmationPage.primaryTextColor,
+          elevation: 1,
+          shadowColor: Colors.black.withOpacity(0.1),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => UserOrderSupportPage(
+                      initialOrderId: widget.bookingId,
+                      serviceId: widget.serviceId,
+                      shop_name: widget.shopName,
+                      user_phone_number: FirebaseAuth.instance.currentUser?.phoneNumber,
+                      user_uid: FirebaseAuth.instance.currentUser?.uid, // if you don’t store email, keep blank
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
 
 
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  FontAwesomeIcons.headset,
-                  size: 16,
-                  color: Colors.black87,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  "Help",
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    FontAwesomeIcons.headset,
+                    size: 16,
                     color: Colors.black87,
                   ),
-                ),
-              ],
-            ),
-          )
-        ],
-      ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            buildConfirmationHeader(context,widget.bookingId),
-            const SizedBox(height: 8),
-            _buildDashboardCard(),
+                  const SizedBox(width: 6),
+                  Text(
+                    "Help",
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            )
           ],
         ),
-      ),
-      bottomNavigationBar: _buildBottomActions(context, canCancel),
-    ),);
+        body: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              buildConfirmationHeader(context,widget.bookingId),
+              const SizedBox(height: 8),
+              _buildDashboardCard(),
+            ],
+          ),
+        ),
+        bottomNavigationBar: _buildBottomActions(context, canCancel),
+      ),);
   }
   Widget buildConfirmationHeader(BuildContext context, String bookingId) {
     return Container(
@@ -1157,20 +1183,75 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     );
   }
 
+  // lib/screens/Boarding/boarding_confirmation_page.dart
+
   Widget _buildProviderHeader() {
+    // Check if the image URL is valid or available
+    final bool isImageValid = widget.shopImage.isNotEmpty && widget.shopImage.startsWith('http');
+
+    Widget imageWidget;
+    if (isImageValid) {
+      // Attempt to load the network image
+      imageWidget = Image.network(
+        widget.shopImage,
+        width: 60,
+        height: 60,
+        fit: BoxFit.cover,
+        // Provide a fallback icon if the network image fails to load (errorBuilder)
+        errorBuilder: (_, __, ___) => Container(
+          width: 60,
+          height: 60,
+          color: backgroundColor,
+          child: const Icon(Icons.store, size: 30, color: lightTextColor),
+        ),
+      );
+    } else {
+      // Show the fallback icon immediately if the URL is empty or invalid
+      imageWidget = Container(
+        width: 60,
+        height: 60,
+        color: backgroundColor,
+        child: const Icon(Icons.store, size: 30, color: lightTextColor),
+      );
+    }
+
     return Row(
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.network(widget.shopImage, width: 50, height: 50, fit: BoxFit.cover),
+          child: imageWidget, // Use the determined image/icon widget
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.shopName, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: ConfirmationPage.primaryTextColor)),
-              const SizedBox(height: 2),
+              Text(
+                widget.shopName,
+                style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: darkColor),
+              ),
+              const SizedBox(height: 4),
+
+              // --- Time Row (already in your code) ---
+              Row(
+                children: [
+                  Icon(
+                    Icons.access_time_rounded,
+                    size: 14,
+                    color: lightTextColor,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    "${widget.openTime} - ${widget.closeTime}",
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: lightTextColor,
+                    ),
+                  ),
+                ],
+              ),
+              // --- Area Name FutureBuilder ---
               FutureBuilder<String>(
                 future: _fetchAreaName(),
                 builder: (ctx, snap) {
@@ -1178,7 +1259,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const FaIcon(
-                        FontAwesomeIcons.mapMarkedAlt,
+                        Icons.location_pin,
                         size: 16,
                         color: Colors.black87, // or AppColor.primary
                       ),

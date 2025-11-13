@@ -109,6 +109,15 @@ Future<HeaderData> preloadHeaderData() async {
 }
 
 
+// ✨ FIX 1: Add a robust helper function for rate maps
+Map<String, int> safeRateMap(dynamic firestoreData) {
+  if (firestoreData is Map) {
+    return firestoreData.map(
+          (k, v) => MapEntry(k.toString(), int.tryParse(v.toString()) ?? 0),
+    );
+  }
+  return {};
+}
 
 Future<String?> getActiveBookingDocId(String userId) async {
   try {
@@ -317,7 +326,7 @@ class AuthGate extends StatelessWidget {
       return PhoneAuthPage();
     }
 
-    // 5️⃣ Active booking check (unchanged)
+    // 5️⃣ Active booking check (unchanged logic, modified return structure)
     final activeBooking = await getActiveBookingDocId(user.uid);
     if (activeBooking != null) {
       final parts = activeBooking.split('|');
@@ -335,6 +344,41 @@ class AuthGate extends StatelessWidget {
         if (doc.exists) {
           print('🚀 Redirecting to active SummaryPage...');
           final data = doc.data()!;
+
+          // ✨ CRITICAL FIX 2 & 3: Safely retrieve all rates and the petSizesList
+
+          final Map<String, int> dailyRates = safeRateMap(data['rates_daily']);
+          final Map<String, int> walkingRates = safeRateMap(data['walkingRates']);
+          final Map<String, int> mealRates = safeRateMap(data['mealRates']);
+
+          final Map<String, Map<String, dynamic>> perDayServices = {};
+
+          final petServicesSnapshot = await doc.reference.collection('pet_services').get();
+
+          for (var petDoc in petServicesSnapshot.docs) {
+            final petDocData = petDoc.data();
+            // Ensure petDocData exists and convert the inner map safely
+            if (petDocData.isNotEmpty) {
+              perDayServices[petDoc.id] = petDocData.map(
+                    (k, v) => MapEntry(k.toString(), v is Map ? Map<String, dynamic>.from(v) : v),
+              );
+            }
+          }
+          // *******************************************************
+
+          // Ensure petSizesList is correctly cast as List<Map<String, dynamic>>
+          final petSizesList = List<Map<String, dynamic>>.from(
+              (data['pet_sizes'] ?? data['petSizesList'] ?? [])
+          );
+
+          // Calculate single-day boarding rate (for the legacy boarding_rate field)
+          // This is generally unreliable but kept for compatibility.
+          double singleDayBoardingRate = 0.0;
+          if (petSizesList.isNotEmpty) {
+            final firstPet = petSizesList.first;
+            singleDayBoardingRate = (firstPet['price'] as double?) ?? 0.0;
+          }
+
           return SummaryPage(
             serviceId: serviceId,
             bookingId: bookingId,
@@ -355,29 +399,37 @@ class AuthGate extends StatelessWidget {
             petIds: List<String>.from(data['pet_id'] ?? []),
             petNames: List<String>.from(data['pet_name'] ?? []),
             petImages: List<String>.from(data['pet_images'] ?? []),
-            perDayServices:
-            Map<String, Map<String, dynamic>>.from(data['perDayServices'] ?? {}),
-            foodCost: double.tryParse(data['foodCost']?.toString() ?? '0'),
-            walkingCost: double.tryParse(data['walkingCost']?.toString() ?? '0'),
+            perDayServices: perDayServices,
+            // The following costs are totals for the entire booking duration, already calculated in the document:
+            foodCost: double.tryParse(data['cost_breakdown']?['meals_cost']?.toString() ?? '0'),
+            walkingCost: double.tryParse(data['cost_breakdown']?['daily_walking_cost']?.toString() ?? '0'),
             transportCost: double.tryParse(data['transportCost']?.toString() ?? '0'),
             openTime: data['openTime'] ?? '',
             closeTime: data['closeTime'] ?? '',
             areaName: data['areaName'] ?? '',
-            boarding_rate: data['cost_breakdown.total_amount'] ?? 0.0,
+            // Use the total boarding cost from the cost breakdown
+            boarding_rate: double.tryParse(data['cost_breakdown']?['boarding_cost']?.toString() ?? '0') ?? 0,
             foodOption: data['foodOption'] ?? '',
             foodInfo: Map<String, dynamic>.from(data['foodInfo'] ?? {}),
             mode: 'resume',
             walkingFee: data['walkingFee']?.toString() ?? '',
             numberOfPets: data['numberOfPets'] ?? 0,
             availableDaysCount: (data['selectedDates'] as List?)?.length ?? 0,
-            sp_location: data['sp_location'] ?? const GeoPoint(0, 0),
-            mealRates: Map<String, int>.from(data['mealRates'] ?? {}),
-            refundPolicy: Map<String, int>.from(data['refundPolicy'] ?? {}),
-            fullAddress: data['fullAddress'] ?? '',
-            walkingRates: Map<String, int>.from(data['walkingRates'] ?? {}),
-            petSizesList: List<Map<String, dynamic>>.from(
-              (data['pet_sizes'] ?? data['petSizesList'] ?? []),
-            ),
+            sp_location: data['shop_location'] ?? const GeoPoint(0, 0),
+
+            // 👇 PASS THE SAFELY CONVERTED MAPS
+            mealRates: mealRates,
+            walkingRates: walkingRates,
+            dailyRates: dailyRates,
+
+            refundPolicy: Map<String, int>.from(data['refund_policy'] ?? {}),
+            fullAddress: data['full_address'] ?? '',
+
+            // 👇 PASS THE CORRECTLY CAST PET SIZES LIST
+            petSizesList: petSizesList,
+
+            // ✨ NEW: Retrieve and pass the petCostBreakdown array
+            petCostBreakdown: List<Map<String, dynamic>>.from(data['petCostBreakdown'] ?? []),
           );
         }
       } catch (e, st) {

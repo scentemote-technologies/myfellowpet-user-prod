@@ -577,7 +577,7 @@ void showCancellationInvoiceDialog({
       // 🔹 Calculate GST refund portion
 // GST is already part of total_amount in booking, so extract the GST portion correctly
       final cancelledGst = (computedGross / (1 + gstRate)) * gstRate;  // isolates GST from the gross refund
-      final netRefundWithGst = computedGross - adminFeeFinal;          // refund includes GST implicitly
+      final netRefundWithGst = computedGross + cancelledGst - adminFeeFinal;          // refund includes GST implicitly
 
       // 🔽🔽🔽 ONLY ADDITIONS BELOW: state to lock the button + show spinner
       bool isCancelling = false;
@@ -977,16 +977,9 @@ void showCancellationInvoiceDialog({
                                   // 3️⃣ Compute adjusted total for the booking document.
                                   final cb = raw['cost_breakdown'] as Map<String, dynamic>? ?? {};
                                   final originalSpFee = double.tryParse(cb['sp_service_fee']?.toString() ?? '0') ?? 0.0;
-                                  final adjustedSpFee = originalSpFee - computedGross;
-                                  // 🧮 Calculate GST portion related to the cancelled service
+                                  final rawAdjustedSpFee = originalSpFee - computedGross;
+                                  final adjustedSpFee = rawAdjustedSpFee;
 
-
-
-
-                                  // 🧮 Calculate GST portion related to the cancelled service
-// 🧮 Calculate GST portion related to the cancelled service
-
-// Dynamically fetch GST rate from settings
                                   final settingsSnap = await FirebaseFirestore.instance
                                       .collection('company_documents')
                                       .doc('fees')
@@ -999,21 +992,16 @@ void showCancellationInvoiceDialog({
                                   final originalSpGst =
                                       double.tryParse(cb['sp_service_gst']?.toString() ?? '0') ?? 0.0;
 
-// GST on cancelled portion = baseCancelled × gstRate
-// ✅ Correct GST extraction and refund logic
-// Your booking total already includes GST, so just extract the GST portion correctly
-                                  final cancelledGst = (computedGross / (1 + gstRate)) * gstRate;  // isolate GST from computedGross
-                                  final adjustedSpGst = (originalSpGst - cancelledGst).clamp(0, double.infinity);
+// AFTER: Apply rounding to 2 decimal places
+                                  final cancelledGst = (computedGross / (1 + gstRate)) * gstRate;
+                                  final rawAdjustedSpGst = (originalSpGst - cancelledGst).clamp(0, double.infinity);
+                                  final adjustedSpGst = rawAdjustedSpGst;
 
-// Refund = total cancelled amount including its existing GST, minus admin fee
-                                  final netRefundWithGst = computedGross - adminFeeFinal;
-
-// 4️⃣ Build the update map for the main booking document.
                                   final updates = <String, dynamic>{
-                                    'refund_amount': netRefundWithGst,
+                                    'refund_amount': netRefundWithGst.toStringAsFixed(2),
                                     'cost_breakdown.sp_service_fee': adjustedSpFee,
                                     'cost_breakdown.sp_service_gst': adjustedSpGst,
-                                    'cost_breakdown.sp_total_with_gst': adjustedSpFee + adjustedSpGst, // optional tidy field
+                                    'cost_breakdown.sp_total_with_gst': adjustedSpFee + adjustedSpGst,
                                     'cancellation_requested_at': nowTs,
 
                                   };
@@ -1051,12 +1039,16 @@ void showCancellationInvoiceDialog({
                                         .get();
 
                                     final totalAlreadyRefunded = historySnap.docs.fold<double>(0.0, (sum, doc) {
-                                      final data = doc.data() as Map<String, dynamic>;
-                                      final prevRefund = (data['net_refund_including_gst'] as num?)?.toDouble() ?? 0.0;
+                                      final data = doc.data();
+
+                                      // 💥 FIX APPLIED HERE: Safely read it as a String and parse it.
+                                      final prevRefundString = data['net_refund_including_gst']?.toString();
+
+                                      final prevRefund = double.tryParse(prevRefundString ?? '0.0') ?? 0.0;
+
                                       return sum + prevRefund;
                                     });
-
-                                    double refundToSend = netRefundWithGst;
+                                    double refundToSend = double.parse(netRefundWithGst.toStringAsFixed(2));
                                     final remaining = (originalTotal - totalAlreadyRefunded).clamp(0, double.infinity);
 
                                     // 🧠 2️⃣ Debug print everything before refunding
@@ -1083,10 +1075,6 @@ void showCancellationInvoiceDialog({
                                       );
                                       refundId = resp['id'] as String?;
                                     } catch (e) {
-                                      print("🚨 Razorpay refund API error: $e");
-                                      ScaffoldMessenger.of(ctx).showSnackBar(
-                                        SnackBar(content: Text('Refund API failed: $e')),
-                                      );
                                       setState(() => isCancelling = false);
                                       return;
                                     }
@@ -1104,7 +1092,7 @@ void showCancellationInvoiceDialog({
                                     },
                                     'cancelled_gst': cancelledGst,
                                     'gst_rate_percent': gstRate * 100,
-                                    'net_refund_including_gst': netRefundWithGst,
+                                    'net_refund_including_gst': netRefundWithGst.toStringAsFixed(2),
                                     'net_refund_excluding_gst': netRefund,
                                     'computed_gross': computedGross,
                                     'admin_fee': adminFeeFinal,
@@ -1560,11 +1548,15 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
 
   // REPLACE your entire _buildOrderCard method with this one
 
+  // lib/screens/Orders/BoardingOrders.dart (inside _buildOrderCard)
+
   Widget _buildOrderCard(OrderSummary order) {
     // --- MODIFICATION START ---
     // 1. Find the earliest date that is today or in the future
     final now = DateTime.now();
-    final upcomingDates = order.dates.where((d) => !d.isBefore(now.subtract(const Duration(days: 1)))).toList();
+    final upcomingDates = order.dates
+        .where((d) => !d.isBefore(now.subtract(const Duration(days: 1))))
+        .toList();
     upcomingDates.sort();
 
     bool canCancel = false;
@@ -1608,6 +1600,8 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
         ?.map((e) => e.toString())
         .toList() ??
         <String>[];
+    // ✨ CRITICAL: Retrieve the pre-calculated breakdown from the document
+    final petCostBreakdown = List<Map<String, dynamic>>.from(data['petCostBreakdown'] ?? []);
     final totalCost = double.tryParse(
       (data['cost_breakdown'] as Map<String, dynamic>?)?['total_amount']
           ?.toString() ??
@@ -1652,20 +1646,25 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
               final serviceId = data['service_id'] as String?;
               final costBreakdown =
                   data['cost_breakdown'] as Map<String, dynamic>? ?? {};
+
+              // ✅ Use total costs saved in the document's breakdown (CRITICAL for resume)
               final foodCost =
-                  double.tryParse(costBreakdown['meals_cost'] ?? '0') ?? 0.0;
+                  double.tryParse(costBreakdown['meals_cost']?.toString() ?? '0') ?? 0.0;
               final walkingCost =
-                  double.tryParse(costBreakdown['daily_walking_cost'] ?? '0') ?? 0.0;
+                  double.tryParse(costBreakdown['daily_walking_cost']?.toString() ?? '0') ?? 0.0;
               final boardingCost =
-                  double.tryParse(costBreakdown['boarding_cost'] ?? '0') ?? 0.0;
+                  double.tryParse(costBreakdown['boarding_cost']?.toString() ?? '0') ?? 0.0;
+
               final transportCost =
-                  double.tryParse(costBreakdown['transport_cost'] ?? '0') ?? 0.0;
+                  double.tryParse(data['transport_cost']?.toString() ?? '0') ?? 0.0;
+
 
               final petIds = List<String>.from(data['pet_id'] ?? []);
-              final rates = Map<String, int>.from(data['rates'] ?? {});
               final mealRates = Map<String, int>.from(data['mealRates'] ?? {});
               final walkingRates =
               Map<String, int>.from(data['walkingRates'] ?? {});
+              final dailyRates =
+              Map<String, int>.from(data['rates_daily'] ?? {});
               final spLocation =
                   data['sp_location'] as GeoPoint? ?? const GeoPoint(0, 0);
 
@@ -1688,6 +1687,7 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
                     walkingCost: walkingCost,
                     transportCost: transportCost,
                     mealRates: mealRates,
+                    dailyRates: dailyRates,
                     walkingRates: walkingRates,
                     fullAddress: fullAddress, // <-- This now works!
                     sp_location: spLocation,
@@ -1705,6 +1705,7 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
                     petImages: petImages,
                     serviceId: serviceId ?? '', // Pass the serviceId
                     fromSummary: false,
+                    petCostBreakdown: petCostBreakdown,
                   ),
                 ),
               );
@@ -1955,7 +1956,6 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
         );
       },
     );
-
   }
 
   Widget _infoRow(String label, String value) {

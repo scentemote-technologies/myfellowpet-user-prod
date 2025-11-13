@@ -230,93 +230,129 @@ import '../Boarding/boarding_parameters_selection_page.dart';
         final proceed = await showDialog<bool>(
           context: context,
           barrierDismissible: false, // User must make a choice
-          builder: (_) => AlertDialog(
-            // Use a modern, large rounded corner shape
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            backgroundColor: Colors.white,
+          builder: (BuildContext context) {
+            // --- Cleaned up: no nested showDialog ---
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                    maxWidth: 500), // Max width, good for tablets
 
-            // --- Title Section ---
-            title: Row(
-              children: [
-                // Use a prominent warning icon with a distinct color
-                Icon(Icons.warning_amber_rounded, color: warningYellow, size: 28),
-                const SizedBox(width: 12),
-                Text(
-                  'Missing Vaccination Data',
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w700,
-                    color: neutralDark,
-                    fontSize: 18,
+                child: AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                ),
-              ],
-            ),
+                  backgroundColor: Colors.white,
+                  insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
 
-            // --- Content Section ---
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'You have not provided any vaccination records for this pet.',
-                  style: GoogleFonts.poppins(
-                    fontSize: 15,
-                    color: neutralDark.withOpacity(0.8),
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // Highlight the proposed action
-                Text.rich(
-                  TextSpan(
-                    text: 'By continuing, the pet will be officially marked as ',
-                    style: GoogleFonts.poppins(fontSize: 15, color: neutralDark.withOpacity(0.8)),
+                  // --- Title Section ---
+                  title: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      TextSpan(
-                        text: '“Never Vaccinated” ',
-                        style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.red.shade700),
+                      Icon(Icons.warning_amber_rounded,
+                          color: warningYellow, size: 28),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          'Missing Vaccination Data',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w700,
+                            color: neutralDark,
+                            fontSize: 18,
+                          ),
+                        ),
                       ),
-                      const TextSpan(text: 'in the profile.'),
                     ],
                   ),
-                ),
-              ],
-            ),
 
-            // --- Action Buttons ---
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(
-                  'Cancel & Add Record', // Clearer action name
-                  style: GoogleFonts.poppins(
-                    color: neutralDark.withOpacity(0.7),
-                    fontWeight: FontWeight.w600,
+                  // --- Content Section ---
+                  content: Container(
+                    width: double.maxFinite,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'You have not provided any vaccination records for this pet.',
+                          style: GoogleFonts.poppins(
+                            fontSize: 15,
+                            color: neutralDark.withOpacity(0.8),
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text.rich(
+                          TextSpan(
+                            text:
+                            'By continuing, the pet will be officially marked as ',
+                            style: GoogleFonts.poppins(
+                              fontSize: 15,
+                              color: neutralDark.withOpacity(0.8),
+                            ),
+                            children: [
+                              TextSpan(
+                                text: '“Never Vaccinated” ',
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.red.shade700,
+                                ),
+                              ),
+                              const TextSpan(text: 'in the profile.'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+
+                  // --- Action Buttons ---
+                  actions: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 16, 16),
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8.0,
+                        runSpacing: 4.0,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: Text(
+                              'Cancel & Add Record',
+                              style: GoogleFonts.poppins(
+                                color: neutralDark.withOpacity(0.7),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryTeal,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                              elevation: 2,
+                            ),
+                            child: Text(
+                              'Proceed Anyway',
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  actionsPadding: EdgeInsets.zero,
                 ),
               ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, false),
-                  style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryTeal,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  elevation: 2,
-                ),
-                child: Text(
-                  'Proceed Anyway',
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8), // Small spacing after buttons
-            ],
-            actionsPadding: const EdgeInsets.fromLTRB(20, 0, 16, 16),
-          ),
+            );
+          },
         );
         if (proceed != true) return;
       }
+
 
       if (_petCount >= 2) {
         final success = await _runRecaptcha();

@@ -43,8 +43,14 @@ class AllActiveOrdersPage extends StatelessWidget {
       final fullAddress = data['full_address'] ?? 'Address not found';
       final spLocation = data['sp_location'] as GeoPoint? ?? const GeoPoint(0, 0);
 
-      final Map<String, int> mealRates = {};
-      final Map<String, int> walkingRates = {};
+      final mealRates = Map<String, int>.from(data['mealRates'] ?? {});
+      final walkingRates =
+      Map<String, int>.from(data['walkingRates'] ?? {});
+      final dailyRates =
+      Map<String, int>.from(data['rates_daily'] ?? {});
+
+      // ✨ CRITICAL: Retrieve the pre-calculated breakdown from the document
+      final petCostBreakdown = List<Map<String, dynamic>>.from(data['petCostBreakdown'] ?? []);
 
       // Fetch perDayServices subcollection
       final Map<String, dynamic> perDayServices = {};
@@ -91,7 +97,9 @@ class AllActiveOrdersPage extends StatelessWidget {
             buildOpenHoursWidget: buildOpenHoursWidget(openTime, closeTime, dates),
             sortedDates: sortedDates,
             petImages: petImages,
-            serviceId: serviceId,
+            serviceId: serviceId, dailyRates: dailyRates,
+            // ✨ PASS THE NEW BREAKDOWN HERE
+            petCostBreakdown: petCostBreakdown,
           ),
         ),
       );

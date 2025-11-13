@@ -485,6 +485,7 @@ class _BoardingParametersSelectionPageState
 
   late double _pricePerDay;
   double _transportCost = 0.0;
+  Set<DateTime> _holidayDates = {};
   double _totalCost = 0.0;
   DateTime? _rangeStart;
   DateTime? _rangeEnd;
@@ -716,7 +717,9 @@ class _BoardingParametersSelectionPageState
               (e) => e.value + _selectedPetIds.length > widget.max_pets_allowed)
           .map((e) => e.key),
       ..._unavailableDates.where(
-              (d) => !_bookingCountMap.keys.any((u) => isSameDay(u, d)))
+              (d) => !_bookingCountMap.keys.any((u) => isSameDay(u, d))),
+      // Holidays (now correctly tracked in state)
+      ..._holidayDates, // <--- Now uses the defined state variable
     ];
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -933,6 +936,7 @@ class _BoardingParametersSelectionPageState
 
       final Map<DateTime, int> dateCountMap = {};
       final List<DateTime> unavailableDates = [];
+      final Set<DateTime> holidays = {}; // Added local set for clarity
       final int petsInCurrentSelection = _selectedPetIds.length;
       final int maxPetsAllowed = widget.max_pets_allowed;
 
@@ -946,7 +950,8 @@ class _BoardingParametersSelectionPageState
         if (isHoliday) {
           print(
               '🗓️ Holiday Found (Date Blocked): ${DateFormat('yyyy-MM-dd').format(normalizedDate)}');
-          unavailableDates.add(normalizedDate);
+          unavailableDates.add(normalizedDate); // Keep in original list for disabling
+          holidays.add(normalizedDate); // Add to local holiday set
           dateCountMap[normalizedDate] =
           0;
         } else {
@@ -963,6 +968,7 @@ class _BoardingParametersSelectionPageState
         setState(() {
           _bookingCountMap = dateCountMap;
           _unavailableDates = unavailableDates.toSet().toList();
+          _holidayDates = holidays; // 🎯 TWEAK 2: Update the global state
         });
       }
     } catch (e) {
@@ -1110,8 +1116,7 @@ class _BoardingParametersSelectionPageState
     try {
       final user = FirebaseAuth.instance.currentUser!;
 
-      // ✨ --- OPTIMIZATION 1 ---
-      // Fetch all prerequisites in parallel
+      // --- Fetch all prerequisites in parallel ---
       final prerequisites = await _fetchBookingPrerequisites(user.uid);
       final _FeesData f = prerequisites['fees'];
       final double gstRatePercent = prerequisites['gstRate'];
@@ -1119,35 +1124,76 @@ class _BoardingParametersSelectionPageState
       final uData = uSnap.data() as Map<String, dynamic>? ?? {};
       // --- End of parallel fetch ---
 
-      double boardingCost = 0.0;
-      double walkingCost = 0.0;
-      double mealsCost = 0.0;
+      double totalBoardingCost = 0.0;
+      double totalWalkingCost = 0.0;
+      double totalMealsCost = 0.0;
+
+      // ✨ 1. New breakdown array for summary page
+      final List<Map<String, dynamic>> petCostBreakdown = [];
 
       for (final pet in _petSizesList) {
         final petId = pet['id'] as String;
+        final petIndex = _selectedPetIds.indexOf(petId);
+        final petName = _selectedPetNames[petIndex];
+        final petImage = _selectedPetImages[petIndex];
         final petSize = pet['size'] as String;
-        final petRate = (_lcRates[petSize] ?? 0).toDouble();
-        boardingCost += petRate * selectedDates.length; // Use calculated dates
+
+        // --- CRITICAL FIX: Declare rate variables here (scope fix) ---
+        final double petBoardingRatePerDay = (_lcRates[petSize] ?? 0).toDouble();
+        final double petWalkingRatePerDay = (_lcWalkingRates[petSize] ?? 0).toDouble();
+        final double petMealRatePerDay = (_lcMealRates[petSize] ?? 0).toDouble();
+        // -------------------------------------------------------------
+
+        double petTotalBoarding = 0.0;
+        double petTotalWalking = 0.0;
+        double petTotalMeals = 0.0;
+
+        // Calculate costs for this specific pet
+        petTotalBoarding = petBoardingRatePerDay * selectedDates.length;
 
         for (final date in selectedDates) {
           if (_petWalkingOptions[petId]?[date] == true) {
-            final walkingRate = (_lcWalkingRates[petSize] ?? 0).toDouble();
-            walkingCost += walkingRate;
+            petTotalWalking += petWalkingRatePerDay;
           }
           if (_petFoodOptions[petId]?[date] == 'provider') {
-            final mealRate = (_lcMealRates[petSize] ?? 0).toDouble();
-            mealsCost += mealRate;
+            petTotalMeals += petMealRatePerDay;
           }
         }
+
+        // Accumulate total costs
+        totalBoardingCost += petTotalBoarding;
+        totalWalkingCost += petTotalWalking;
+        totalMealsCost += petTotalMeals;
+
+        // ✨ 2. Add pet's cost contribution to the new array
+        // Note: We use the *PerDayRate* variables declared above.
+        petCostBreakdown.add({
+          'id': petId,
+          'name': petName,
+          'size': petSize,
+          // --- FIX: Store Per-Day Rates and Total Costs for clarity ---
+          'boardingRatePerDay': petBoardingRatePerDay,
+          'walkingRatePerDay': petWalkingRatePerDay,
+          'mealRatePerDay': petMealRatePerDay,
+          'totalBoardingCost': petTotalBoarding, // This is for the invoice/backend
+          'totalWalkingCost': petTotalWalking,   // This is for the invoice/backend
+          'totalMealCost': petTotalMeals,       // This is for the invoice/backend
+          // -------------------------------------------------------------
+          'totalPetCost': petTotalBoarding + petTotalWalking + petTotalMeals,
+        });
       }
 
+      // Use the accumulated totals for GST calculation
+      final double spServiceFee = totalBoardingCost + totalWalkingCost + totalMealsCost;
+
+      // ... (Rest of cost calculation is unchanged, using accumulated totals)
       double transportCost = _transportCost;
-      final double spServiceFee = boardingCost + walkingCost + mealsCost;
       final double spServiceGst = spServiceFee * (gstRatePercent / 100);
       final double grandTotal =
           spServiceFee + spServiceGst + transportCost + f.platform + f.gst;
       setState(() => _totalCost = grandTotal);
 
+      // ... (Unchanged perPetServices creation logic)
       final Map<String, Map<String, dynamic>> perPetServices = {};
       for (final petId in _selectedPetIds) {
         final petIndex = _selectedPetIds.indexOf(petId);
@@ -1183,6 +1229,7 @@ class _BoardingParametersSelectionPageState
           .doc();
 
       final mainBookingData = {
+        // ... (mainBookingData remains the same, using totalBoardingCost, totalWalkingCost, totalMealsCost)
         'order_status': 'pending_payment',
         'admin_account_number': '2323230014933488',
         'user_id': user.uid,
@@ -1206,9 +1253,9 @@ class _BoardingParametersSelectionPageState
         'user_location': uData['user_location'],
         'timestamp': FieldValue.serverTimestamp(),
         'cost_breakdown': {
-          'boarding_cost': boardingCost.toStringAsFixed(2),
-          'daily_walking_cost': walkingCost.toStringAsFixed(2),
-          'meals_cost': mealsCost.toStringAsFixed(2),
+          'boarding_cost': totalBoardingCost.toStringAsFixed(2),
+          'daily_walking_cost': totalWalkingCost.toStringAsFixed(2), // Use total walking cost
+          'meals_cost': totalMealsCost.toStringAsFixed(2),           // Use total meals cost
           'sp_service_fee': spServiceFee.toStringAsFixed(2),
           'sp_service_gst_fee': spServiceGst.toStringAsFixed(2),
           'sp_total_with_gst': (spServiceFee + spServiceGst).toStringAsFixed(2),
@@ -1217,6 +1264,9 @@ class _BoardingParametersSelectionPageState
           'platform_fee_plus_gst': (f.platform + f.gst).toStringAsFixed(2),
           'total_amount': grandTotal.toStringAsFixed(2),
         },
+        'sp_service_fee_exc_gst': spServiceFee.toStringAsFixed(2),
+        'sp_service_fee_inc_gst': (spServiceFee + spServiceGst).toStringAsFixed(2),
+
         'shopName': widget.shopName,
         'shop_image': widget.shopImage,
         'selectedDates': selectedDates,
@@ -1227,10 +1277,11 @@ class _BoardingParametersSelectionPageState
         'admin_called': false,
         'refund_policy': widget.refundPolicy,
         'referral_code_used': false,
+        // ✨ 3. Save the new pet cost breakdown array in the main booking data
+        'petCostBreakdown': petCostBreakdown,
       };
 
-      // ✨ --- OPTIMIZATION 2 ---
-      // This transaction is now highly efficient.
+      // ... (Transaction logic remains the same)
       await db.runTransaction((transaction) async {
         final List<String> dateStrings = selectedDates
             .map((date) => DateFormat('yyyy-MM-dd').format(date))
@@ -1244,7 +1295,6 @@ class _BoardingParametersSelectionPageState
             .collection('daily_summary');
 
         // 1️⃣ Read all required documents in one batch
-// 1️⃣ Read all required documents in one batch
         final summaryQuery = await summaryCollection
             .where(FieldPath.documentId, whereIn: dateStrings)
             .get();
@@ -1278,7 +1328,7 @@ class _BoardingParametersSelectionPageState
         }
 
         // 4️⃣ Write the main booking and sub-collections
-        transaction.set(bookingRef, mainBookingData);
+        transaction.set(bookingRef, mainBookingData); // mainBookingData now includes petCostBreakdown
 
         for (final petEntry in perPetServices.entries) {
           final petId = petEntry.key;
@@ -1292,23 +1342,24 @@ class _BoardingParametersSelectionPageState
       print('✅ Booking confirmed safely with transaction.');
       if (!mounted) return; // Check if widget is still alive
 
+      // ✨ 4. Pass the new petCostBreakdown list to SummaryPage
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => SummaryPage(
             mode: widget.mode,
-            boarding_rate: boardingCost,
+            boarding_rate: totalBoardingCost, // Pass total boarding cost for legacy field
             bookingId: bookingRef.id,
             openTime: widget.open_time,
             closeTime: widget.close_time,
-            foodCost: mealsCost,
+            foodCost: totalMealsCost,
             shopImage: widget.shopImage,
             shopName: widget.shopName,
             sp_id: widget.sp_id,
             startDate: _rangeStart,
             endDate: _rangeEnd,
             transportCost: _transportCost,
-            dailyWalkingRequired: walkingCost > 0,
+            dailyWalkingRequired: totalWalkingCost > 0,
             walkingFee: widget.walkingFee,
             totalCost: _totalCost,
             pickupDistance: _pickupDistance,
@@ -1325,15 +1376,17 @@ class _BoardingParametersSelectionPageState
             serviceId: widget.serviceId,
             sp_location: widget.sp_location,
             areaName: widget.fullAddress,
-            foodOption: mealsCost > 0 ? 'provider' : 'self',
+            foodOption: totalMealsCost > 0 ? 'provider' : 'self',
             foodInfo: null,
             mealRates: widget.mealRates,
+            dailyRates: widget.rates,
             refundPolicy: widget.refundPolicy,
             fullAddress: widget.fullAddress,
             walkingRates: widget.walkingRates,
             perDayServices: perPetServices,
-            walkingCost: walkingCost,
+            walkingCost: totalWalkingCost,
             petSizesList: _petSizesList,
+            petCostBreakdown: petCostBreakdown, // <<< NEW PARAMETER
           ),
         ),
       );
@@ -1379,83 +1432,78 @@ class _BoardingParametersSelectionPageState
       barrierDismissible: true,
       barrierLabel: '',
       barrierColor: Colors.black.withOpacity(0.4),
-      transitionDuration: const Duration(milliseconds: 250),
+      transitionDuration: const Duration(milliseconds: 300), // Increased slightly for smooth effect
       pageBuilder: (context, animation, secondaryAnimation) {
         return Center(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(20),
+            // BackdropFilter and Material/Container remain the same for the blur/container structure
             child: BackdropFilter(
               filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
               child: Material(
-                color: Colors.white.withOpacity(0.9),
+                color: Colors.white,
                 elevation: 8,
                 child: Container(
                   width: MediaQuery.of(context).size.width * 0.8,
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(28), // Increased padding
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 12,
-                        offset: const Offset(0, 6),
+                        color: Colors.black.withOpacity(0.15), // Darker shadow
+                        blurRadius: 18, // Larger blur
+                        offset: const Offset(0, 8),
                       ),
                     ],
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // --- Animated Icon (using AppColor.primaryColor) ---
                       TweenAnimationBuilder<double>(
                         tween: Tween(begin: 0.8, end: 1.0),
-                        duration: const Duration(milliseconds: 300),
+                        duration: const Duration(milliseconds: 400),
                         curve: Curves.elasticOut,
                         builder: (context, scale, child) =>
                             Transform.scale(
                               scale: scale,
-                              child: const Icon(
+                              child: Icon(
                                 Icons.error_outline_rounded,
-                                color: Colors.orange,
-                                size: 60,
+                                color: AppColors.primaryColor, // ✨ Used primaryColor
+                                size: 64, // Slightly larger icon
                               ),
                             ),
                       ),
-                      const SizedBox(height: 18),
-                      const Text(
-                        "Uh Oh!",
-                        style: TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 20),
+
                       Text(
                         message,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.black54,
+                        style: GoogleFonts.poppins( // ✨ Used Poppins
+                          fontSize: 15,
+                          color: Colors.black87,
                           height: 1.4,
                         ),
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 28),
+                      // --- Action Button (using primaryColor) ---
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orangeAccent,
+                            backgroundColor: AppColors.primaryColor, // ✨ Used primaryColor
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            elevation: 2,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            elevation: 4, // Higher elevation for pop
                           ),
                           onPressed: () => Navigator.pop(context),
-                          child: const Text(
-                            "Got it",
-                            style: TextStyle(
+                          child: Text(
+                            "Dismiss",
+                            style: GoogleFonts.poppins( // ✨ Used Poppins
                               fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w600,
                               color: Colors.white,
                             ),
                           ),
@@ -1469,6 +1517,7 @@ class _BoardingParametersSelectionPageState
           ),
         );
       },
+      // The transition is already clean and professional, using Curves.easeOutBack is great.
       transitionBuilder: (context, animation, secondaryAnimation, child) {
         final curved =
         CurvedAnimation(parent: animation, curve: Curves.easeOutBack);
@@ -1748,33 +1797,32 @@ class _BoardingParametersSelectionPageState
     final acceptedBreeds = _acceptedBreeds.map((b) => b.toLowerCase()).toSet();
 
     // 3. --- Logically Check for Rejection ---
-    // This is the new, correct logic
     String rejectionReason = '';
 
     if (serviceAcceptsPetType == null) {
       // Safety check, this should never happen
-      rejectionReason = 'Service pet type not specified.';
+      rejectionReason = 'The service pet type was not specified.';
     } else if (petType == 'unknown') {
       // This is your "Unknown" error! It means the pet's profile is incomplete.
       rejectionReason =
-      'This pet (named ${pet['name']}) has an Unknown pet type in its profile.';
+      'This pet (named ${pet['name']}) has an **Unknown** pet type in its profile. Please update your pet\'s profile.';
     } else if (petType != serviceAcceptsPetType) {
-      // This is for multi-pet households (e.g., selecting a "cat" on a "dog" service page)
+      // Simple and clear pet type mismatch reason
       rejectionReason =
-      'This service is for ${serviceAcceptsPetType.capitalize()} pets, but this is a ${petType.capitalize()}.';
+      'This pet is a ${petType.capitalize()}, but the type you selected for this service on the previous page was ${serviceAcceptsPetType.capitalize()}.';
     } else if (petSize == 'unknown') {
       rejectionReason =
-      'This pet (named ${pet['name']}) has an Unknown size in its profile. Please update it.';
+      'This pet (named ${pet['name']}) has an **Unknown** size listed in its profile. Please update your pet\'s profile.';
     } else if (petBreed == 'unknown') {
       rejectionReason =
-      'This pet (named ${pet['name']}) has an Unknown breed in its profile. Please update it.';
+      'This pet (named ${pet['name']}) has an **Unknown** breed listed in its profile. Please update your pet\'s profile.';
     } else if (!acceptedSizes.any((s) => s.startsWith(petSize))) {
-      rejectionReason = 'This service does not accept *${petSize.capitalize()}* size ${petType.capitalize()}s.';    } else if (!acceptedBreeds.contains(petBreed)) {
+      rejectionReason = 'This service does not accept ${petSize.capitalize()} size ${petType.capitalize()}s.';
+    } else if (!acceptedBreeds.contains(petBreed)) {
       // This is the real breed check
       rejectionReason =
       'This service does not accept the breed ${petBreed.capitalize()} for ${petType.capitalize()}s.';
     }
-
     // 4. --- Build the Card ---
     final bool isAccepted = rejectionReason.isEmpty;
     final bool isMasked = !isAccepted;
@@ -2368,7 +2416,6 @@ class _BoardingParametersSelectionPageState
                           ),
                           Row(
                             children: [
-                              if (hasMeals)
                                 _buildServiceOptionBox(
                                   icon: Icons.restaurant_menu_rounded,
                                   label: 'Meal',
@@ -2387,9 +2434,7 @@ class _BoardingParametersSelectionPageState
                                     });
                                   },
                                 ),
-                              if (hasMeals && hasWalking)
                                 const SizedBox(width: 10),
-                              if (hasWalking)
                                 _buildServiceOptionBox(
                                   icon: Icons.directions_walk_rounded,
                                   label: 'Walk',
