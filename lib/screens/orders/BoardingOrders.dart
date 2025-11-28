@@ -36,7 +36,86 @@ class FilteredOrders {
 
 // ── ISOLATE COMPUTATION FUNCTION ────────────────────────────────────────────────
 // ── ISOLATE COMPUTATION FUNCTION ────────────────────────────────────────────────
+void _showDirectPaymentCancellationDialog(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Icon Header
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.info_outline_rounded,
+                  color: Colors.orange.shade800,
+                  size: 28
+              ),
+            ),
+            const SizedBox(height: 16),
 
+            // Title
+            Text(
+              "Direct Booking",
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF2D3436),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+
+            // Body
+            Text(
+              "Since payment was handled directly at the center, please contact the boarder to process cancellations or refunds.",
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                color: const Color(0xFF636E72),
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 24),
+
+            // Action Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2D3436),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: Text(
+                  'Understood',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 /// Must be a top-level function to run in an isolate
 FilteredOrders computeOrderLists(OrderComputeData data) {
   // 1. Map raw documents to OrderSummary objects
@@ -176,6 +255,14 @@ Future<void> handleCancel(
     ) async {
 
   final data = bookingDoc.data() as Map<String, dynamic>;
+  final String? paymentId = data['payment_id'];
+
+  // If there is no payment ID, it was a direct booking.
+  // Stop the process and show the dialog.
+  if (paymentId == null || paymentId.isEmpty) {
+    _showDirectPaymentCancellationDialog(context);
+    return;
+  }
   final now = DateTime.now();
 
   final petNames = (data['pet_name'] as List<dynamic>? ?? [])
@@ -2052,6 +2139,9 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
           '0',
     ) ?? 0.0;
     final serviceId = data['service_id'] as String? ?? order.doc.id;
+    final String? pid = data['payment_id'];
+    final bool isDirectBooking = pid == null || pid.isEmpty;
+
 
     return FutureBuilder<DocumentSnapshot>(
       future: FirebaseFirestore.instance
@@ -2065,6 +2155,7 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
 
         final data = snapshot.data?.data() as Map<String, dynamic>?;
         final checkoutEnabled = data?['checkoutEnabled'] == true;
+
 
         // This logic remains the same for the "CANCEL" button appearance
         final canCancel = checkoutEnabled;
@@ -2109,6 +2200,7 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
               Map<String, int>.from(data['walkingRates'] ?? {});
               final dailyRates =
               Map<String, int>.from(data['rates_daily'] ?? {});
+
               final spLocation =
                   data['sp_location'] as GeoPoint? ?? const GeoPoint(0, 0);
 
@@ -2337,19 +2429,25 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
                       children: [
                         ElevatedButton(
                           onPressed: canCancel
-                              ? () => handleCancel(order.doc, context)
-                              : null,
+                              ? () => handleCancel(order.doc, context) // Calls your function (which now handles the dialog)
+                              : null, // Disabled if date is too close
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
                             side: BorderSide(
-                              color: canCancel ? Colors.red : Colors.grey,
+                              // COLOR LOGIC:
+                              // If Cancellable:
+                              //    - Direct Booking? -> Dark Grey (Professional)
+                              //    - Online Payment? -> Red (Alert)
+                              // If Not Cancellable: -> Light Grey (Disabled)
+                              color: canCancel
+                                  ? (isDirectBooking ? Colors.grey.shade700 : Colors.red)
+                                  : Colors.grey.shade300,
                               width: 1.5,
                             ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 9, vertical: 7),
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
                             elevation: 0,
                           ),
                           child: Text(
@@ -2357,7 +2455,10 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
                             style: GoogleFonts.poppins(
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
-                              color: canCancel ? Colors.red : Colors.grey,
+                              // TEXT COLOR LOGIC (Matches Border)
+                              color: canCancel
+                                  ? (isDirectBooking ? Colors.grey.shade700 : Colors.red)
+                                  : Colors.grey,
                             ),
                           ),
                         ),
