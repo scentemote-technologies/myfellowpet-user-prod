@@ -15,6 +15,7 @@ import '../../main.dart';
 import '../HomeScreen/HomeScreen.dart';
 import '../Orders/BoardingOrders.dart';
 import '../Tickets/chat_support.dart';
+import '../refund/refund_input_page.dart';
 import 'OpenCloseBetween.dart';
 
 // --- Main Confirmation Page Widget ---
@@ -35,7 +36,11 @@ class _FeesData {
 }
 
 class ConfirmationPage extends StatefulWidget  {
+  final bool gstRegistered;
+  final bool checkoutEnabled;
   final String shopName;
+  final String bookingId;
+  final String serviceId;
   final bool fromSummary;
   final String shopImage;
   final double boarding_rate;
@@ -44,11 +49,9 @@ class ConfirmationPage extends StatefulWidget  {
   final List<String> petNames;
   final String openTime;
   final String closeTime;
-  final String bookingId;
   final Widget buildOpenHoursWidget;
   final List<DateTime> sortedDates;
   final List<String> petImages;
-  final String serviceId;
 
   // Add these inside your ConfirmationPage class
   final Map<String, dynamic> perDayServices;
@@ -69,6 +72,8 @@ class ConfirmationPage extends StatefulWidget  {
     Key? key,
     required this.shopName,
     required this.shopImage,
+    required this.gstRegistered,
+    required this.checkoutEnabled,
     required this.selectedDates,
     required this.totalCost,
     required this.petNames,
@@ -169,6 +174,57 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
         gstPercentageForDisplay
     );
   }
+
+  Future<void> processRefund(double refundRequest) async {
+    final docRef = FirebaseFirestore.instance
+        .collection('users-sp-boarding')
+        .doc(widget.serviceId)
+        .collection('service_request_boarding')
+        .doc(widget.bookingId);
+
+    final snap = await docRef.get();
+    final data = snap.data()!;
+
+    double remaining = (data['remaining_refundable_amount'] ?? 0).toDouble();
+    double refunded = (data['total_refunded_amount'] ?? 0).toDouble();
+    double adminFeeTotal = (data['admin_fee_collected_total'] ?? 0).toDouble();
+    double adminGstTotal = (data['admin_fee_gst_collected_total'] ?? 0).toDouble();
+
+    double allowed = refundRequest;
+    if (allowed > remaining) allowed = remaining;
+
+    double adminFee = allowed * 0.10;
+    double adminGst = adminFee * 0.18;
+
+    double netRefund = allowed - adminFee - adminGst;
+
+    await docRef.update({
+      'remaining_refundable_amount': remaining - allowed,
+      'total_refunded_amount': refunded + allowed,
+      'admin_fee_collected_total': adminFeeTotal + adminFee,
+      'admin_fee_gst_collected_total': adminGstTotal + adminGst,
+    });
+
+    await requestRefund(
+      paymentId: data['payment_id'],
+      amountInPaise: (netRefund * 100).toInt(),
+    );
+  }
+
+  Future<void> requestRefund({
+    required String paymentId,
+    required int amountInPaise,
+  }) async {
+    await http.post(
+      Uri.parse("https://razorpayrefundtest-urjpiqxoca-uc.a.run.app/razorpayRefundTest"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({
+        "paymentId": paymentId,
+        "amount": amountInPaise,
+      }),
+    );
+  }
+
   Future<String> _fetchPhoneNumber() async {
     final doc = await FirebaseFirestore.instance
         .collection('users-sp-boarding')
@@ -583,11 +639,18 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                             }
 
                             final fees = snap.data!;
-                            final double serviceGst = serviceSubTotal * (fees.gstPercentage / 100);
-                            final double platformFeeTotal =
-                                fees.platformFeePreGst + fees.platformFeeGst;
-                            final double grandTotal =
-                                serviceSubTotal + serviceGst + platformFeeTotal; // Include transport in grand total
+                            final bool gstRegistered = widget.gstRegistered;
+                            final bool checkoutEnabled = widget.checkoutEnabled;
+
+                            double serviceGst = gstRegistered
+                                ? serviceSubTotal * (fees.gstPercentage / 100)
+                                : 0.0;
+
+                            double platformFeeTotal = checkoutEnabled
+                                ? (fees.platformFeePreGst + fees.platformFeeGst)
+                                : 0.0;
+
+                            double grandTotal = serviceSubTotal + serviceGst + platformFeeTotal;
 
                             return ListView(
                               controller: scrollController,
@@ -599,15 +662,22 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                                 if (newWalkingCost > 0)
                                   _buildItemRow('Walking Fee (Pre-GST)', newWalkingCost),
 
-                                const SizedBox(height: 10),
-                                Divider(color: Colors.grey.shade300, thickness: 1),
-                                const SizedBox(height: 10),
+                                if (gstRegistered || checkoutEnabled) ...[
+                                  const SizedBox(height: 10),
+                                  Divider(color: Colors.grey.shade300, thickness: 1),
+                                  const SizedBox(height: 10),
+                                ],
+                                if (gstRegistered)
+                                  _buildItemRow('GST (${fees.gstPercentage.toStringAsFixed(0)}%) on Service', serviceGst),
 
-                                _buildItemRow('GST (${fees.gstPercentage.toStringAsFixed(0)}%) on Service', serviceGst),
-                                _buildItemRow('Platform Fee (Pre-GST)', fees.platformFeePreGst),
-                                _buildItemRow('GST on Platform Fee', fees.platformFeeGst),
+                                if (checkoutEnabled)
+                                  _buildItemRow('Platform Fee (Pre-GST)', fees.platformFeePreGst),
 
-                                const SizedBox(height: 14),
+                                if (checkoutEnabled)
+                                  _buildItemRow('GST on Platform Fee', fees.platformFeeGst),
+
+
+                            const SizedBox(height: 14),
                                 Divider(color: Colors.grey.shade400, thickness: 1.2),
                                 const SizedBox(height: 14),
 
@@ -1066,6 +1136,9 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
               buildConfirmationHeader(context,widget.bookingId),
               const SizedBox(height: 8),
               _buildDashboardCard(),
+              SizedBox(height: 10),
+
+
             ],
           ),
         ),
@@ -1413,11 +1486,12 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
   }
 
   Widget _buildBottomActions(BuildContext context, bool canCancel) {
-    // Define your primary color for easy use
     const Color primaryColor = Color(0xFF2CB4B6);
 
+    // Check if it's a direct payment booking
+    final bool isDirectBooking = !widget.checkoutEnabled;
+
     return Container(
-      // The outer container styling remains the same
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1434,21 +1508,27 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
           children: [
             // --- CANCEL BUTTON ---
             Expanded(
-              child: OutlinedButton( // Changed from TextButton to OutlinedButton
+              child: OutlinedButton(
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  // Set the border and text color based on the `canCancel` flag
-                  foregroundColor: Colors.red.shade700,
+                  // 🔥 TWEAK: Grey style if direct payment, Red if app payment
+                  foregroundColor: isDirectBooking ? Colors.grey.shade600 : Colors.red.shade700,
                   side: BorderSide(
-                    color:Colors.red.shade700,
+                    color: isDirectBooking ? Colors.grey.shade300 : Colors.red.shade700,
                     width: 1.5,
                   ),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
+                  backgroundColor: isDirectBooking ? Colors.grey.shade50 : Colors.transparent,
                 ),
-                // The onPressed logic remains exactly the same as before
                 onPressed: () async {
+                  // --- NEW CHECK: Is checkout enabled? ---
+                  if (isDirectBooking) {
+                    _showDirectPaymentCancellationDialog(context);
+                    return; // Stop here
+                  }
 
+                  // --- EXISTING CANCELLATION LOGIC ---
                   showDialog(
                     context: context,
                     barrierDismissible: false,
@@ -1463,8 +1543,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                     } else {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Error: Booking not found.')),
+                          const SnackBar(content: Text('Error: Booking not found.')),
                         );
                       }
                     }
@@ -1472,15 +1551,15 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                     if (context.mounted) Navigator.pop(context);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                            content: Text('Failed to get booking details: $e')),
+                        SnackBar(content: Text('Failed to get booking details: $e')),
                       );
                     }
                   }
                 },
-                child: Text("Cancel Booking",
-                    style: GoogleFonts.poppins(
-                        fontSize: 16, fontWeight: FontWeight.w600)),
+                child: Text(
+                  "Cancel Booking",
+                  style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -1488,12 +1567,12 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
             // --- DONE BUTTON ---
             Expanded(
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.check_circle_outline, size: 20, color: Colors.white),
+                icon: const Icon(Icons.check_circle_outline,
+                    size: 20, color: Colors.white),
                 label: Text("Done",
                     style: GoogleFonts.poppins(
                         fontSize: 16, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
-                  // Use your primary color here
                   backgroundColor: primaryColor,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1501,7 +1580,6 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                       borderRadius: BorderRadius.circular(12)),
                   elevation: 2,
                 ),
-                // The onPressed logic for this button is also unchanged
                 onPressed: () {
                   if (widget.fromSummary) {
                     Navigator.of(context).popUntil((route) => route.isFirst);
@@ -1520,21 +1598,83 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     );
   }
 
-  // --- Dialogs (Unchanged Logic, Restyled UI) ---
-
-  void _showCannotCancelDialog(BuildContext context) {
+  void _showDirectPaymentCancellationDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text("Cancellation Not Allowed", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text("Bookings can only be cancelled up to 24 hours before the service start time.", style: GoogleFonts.poppins(color: ConfirmationPage.secondaryTextColor)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('OK', style: GoogleFonts.poppins(color: ConfirmationPage.accentColor, fontWeight: FontWeight.w600)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icon Header
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.info_outline_rounded,
+                    color: Colors.orange.shade800,
+                    size: 28
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Title
+              Text(
+                "Direct Booking",
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF2D3436),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+
+              // Body
+              Text(
+                "Since payment was handled directly at the center, please contact the boarder to process cancellations or refunds.",
+                style: GoogleFonts.poppins(
+                  fontSize: 13, // Professional small font
+                  color: const Color(0xFF636E72),
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 24),
+
+              // Action Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2D3436), // Dark professional button
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: Text(
+                    'Understood',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

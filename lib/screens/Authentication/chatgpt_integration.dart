@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:myfellowpet_user/app_colors.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ConnectAIPage extends StatefulWidget {
   const ConnectAIPage({super.key});
@@ -72,7 +73,9 @@ class _ConnectAIPageState extends State<ConnectAIPage> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black),
       ),
-      body: Padding(
+      body: SingleChildScrollView(
+    physics: BouncingScrollPhysics(),
+    child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -99,12 +102,79 @@ class _ConnectAIPageState extends State<ConnectAIPage> {
                 height: 1.5,
               ),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 0),
+            FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance
+                  .collection('settings')
+                  .doc('links')
+                  .get(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return SizedBox();
+
+                final data = snapshot.data!.data() as Map<String, dynamic>?;
+                final gptData = data?['myfellowpet_gpt'];
+
+                if (gptData == null) return SizedBox();
+
+                final bool isActive = gptData['active'] == true;
+                final String? link = gptData['link'];
+
+                if (!isActive || link == null || link.isEmpty) return SizedBox();
+
+                // 🎉 Button is shown only when link is active in Firestore
+                return Column(
+                  children: [
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 55,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            Uri url = Uri.parse(link);
+                            await launchUrl(url, mode: LaunchMode.externalApplication);
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text("Could not open GPT")),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: AppColors.primaryColor, width: 1.5),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.open_in_new, color: AppColors.primaryColor, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              "Open MyFellowPet GPT",
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+
 
             // The Code Display Card
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+              padding: const EdgeInsets.symmetric(vertical: 25, horizontal: 20),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
@@ -174,8 +244,9 @@ class _ConnectAIPageState extends State<ConnectAIPage> {
                 ],
               ),
             ),
+            const SizedBox(height: 20),
 
-            const Spacer(),
+
 
             // Buttons
             SizedBox(
@@ -220,6 +291,6 @@ class _ConnectAIPageState extends State<ConnectAIPage> {
           ],
         ),
       ),
-    );
+    ),);
   }
 }

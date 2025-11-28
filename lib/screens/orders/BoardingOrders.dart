@@ -11,6 +11,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../app_colors.dart';
 import '../Boarding/OpenCloseBetween.dart';
 import '../Boarding/boarding_confirmation_page.dart';
+import '../refund/cancellation_invoice_page.dart';
 
 // ── ISOLATE DATA MODELS ────────────────────────────────────────────────────────
 
@@ -82,28 +83,6 @@ FilteredOrders computeOrderLists(OrderComputeData data) {
 }
 // ────────────────────────────────────────────────────────────────────────────────
 
-// BEFORE: Future<void> requestRefund(...)
-Future<Map<String, dynamic>> requestRefund({
-  required String paymentId,
-  required int amountInPaise,
-}) async {
-  final uri = Uri.parse(
-    'https://us-central1-petproject-test-g.cloudfunctions.net/initiateTestRazorpayRefund',
-  );
-  final resp = await http.post(
-    uri,
-    headers: {'Content-Type': 'application/json'},
-    body: jsonEncode({
-      'payment_id': paymentId,
-      'amount': amountInPaise,
-    }),
-  );
-  final body = jsonDecode(resp.body) as Map<String, dynamic>;
-  if (resp.statusCode != 200) {
-    throw Exception('Refund failed: ${body['error'] ?? resp.body}');
-  }
-  return body;
-}
 
 /// Calculate refund % based on time-to-start vs policy brackets
 int calculateRefundPercent({
@@ -190,49 +169,50 @@ Future<void> triggerAdminCancellationPayout({
     print("🚨 Admin payout error: $e");
   }
 }
-
 /// Main cancel handler
 Future<void> handleCancel(
     DocumentSnapshot bookingDoc,
     BuildContext context,
     ) async {
+
   final data = bookingDoc.data() as Map<String, dynamic>;
   final now = DateTime.now();
 
   final petNames = (data['pet_name'] as List<dynamic>? ?? [])
       .map((e) => e.toString())
       .toList();
+
   final petIds = (data['pet_id'] as List<dynamic>? ?? [])
       .map((e) => e.toString())
       .toList();
+
   final Map<String, List<String>> overrides =
       (data['attendance_override'] as Map<String, dynamic>?)
-          ?.map((k,v) => MapEntry(
-        k,
-        (v as List<dynamic>).cast<String>(),
-      ))
+          ?.map((k, v) =>
+          MapEntry(k, (v as List<dynamic>).cast<String>()))
           ?? {};
-  // 1) Build list of open-points
+
+
+  // 1) build list of open-points
   final rawDates = (data['selectedDates'] as List<dynamic>? ?? [])
       .map<DateTime?>((d) => d is Timestamp ? d.toDate() : d as DateTime?)
       .whereType<DateTime>()
       .toList()
     ..sort();
+
   final openTimeStr = data['openTime'] as String? ?? '12:00 AM';
   final parsedOpen = DateFormat('h:mm a').parse(openTimeStr);
+
   final openPoints = rawDates
-  // 1) skip any date where ALL pets already cancelled
+  // skip dates where all pets are cancelled
       .where((d) {
     final key = DateFormat('yyyy-MM-dd').format(d);
     final cancelled = overrides[key] ?? <String>[];
     return !petIds.every((id) => cancelled.contains(id));
   })
-  // 2) then map to your open-time DateTimes
-      .map((d) => DateTime(
-    d.year, d.month, d.day,
-    parsedOpen.hour, parsedOpen.minute,
-  ))
-  // 3) keep only today/future
+  // convert to full DateTime with open hour
+      .map((d) => DateTime(d.year, d.month, d.day, parsedOpen.hour, parsedOpen.minute))
+  // keep only today/future
       .where((dt) {
     final today = DateTime(now.year, now.month, now.day);
     return dt.isAtSameMomentAs(today) || dt.isAfter(now);
@@ -241,20 +221,16 @@ Future<void> handleCancel(
       .toList()
     ..sort();
 
-
-  // 2) Extract pet lists
-
-
-  // 3) Show per-date pet-selection sheet
+  // 2) build UI for selecting pets-per-date
   final selection = await showModalBottomSheet<_CancelSelectionPerDate>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (_) {
-      // map each date to its selected pet-indexes
       final selectedPerDate = <DateTime, Set<int>>{
         for (var d in openPoints) d: <int>{}
       };
+
       return GestureDetector(
         onTap: () => Navigator.of(context).pop(),
         child: Container(
@@ -265,146 +241,153 @@ Future<void> handleCancel(
               maxChildSize: 0.85,
               initialChildSize: 0.6,
               minChildSize: 0.3,
-              builder: (ctx, ctrl) => Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                ),
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: ListView(
-                  controller: ctrl,
-                  children: [
-                    // Handle
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.4),
-                          borderRadius: BorderRadius.circular(2),
+              builder: (ctx, ctrl) {
+                return Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  child: ListView(
+                    controller: ctrl,
+                    children: [
+
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.4),
+                              borderRadius: BorderRadius.circular(2)),
                         ),
                       ),
-                    ),
-                    SizedBox(height: 12),
-                    // Title
-                    Text(
-                      'Cancel Booking',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    SizedBox(height: 24),
-                    // For each date: show header + pet chips
-                    for (final date in openPoints) ...[
+                      SizedBox(height: 12),
+
                       Text(
-                        DateFormat('MMM dd, yyyy').format(date),
+                        "Cancel Booking",
+                        textAlign: TextAlign.center,
                         style: GoogleFonts.poppins(
-                            fontSize: 14, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8, runSpacing: 8,
-                        children: List.generate(petNames.length, (i) {
-                          final name = petNames[i];
-                          final isSel = selectedPerDate[date]!.contains(i);
-                          final key = DateFormat('yyyy-MM-dd').format(date);
-                          final cancelledOnDate = overrides[key] ?? <String>[];
-                          final dateKey = DateFormat('yyyy-MM-dd').format(date);
-
-                          // inside your List.generate …
-                          return Tooltip(
-                            message: 'This pet has already been cancelled for this date.',
-                            triggerMode: TooltipTriggerMode.tap,
-                            child: FilterChip(
-                              label: Text(
-                                name,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 12,
-                                  fontWeight: isSel ? FontWeight.w600 : FontWeight.w400,
-                                  color: cancelledOnDate.contains(petIds[i])
-                                      ? Colors.grey                       // grey text if disabled
-                                      : isSel
-                                      ? Colors.white                 // white text when selected
-                                      : Colors.black87,              // normal text when unselected
-                                ),
-                              ),
-                              selected: isSel,
-                              onSelected: cancelledOnDate.contains(petIds[i])
-                                  ? null                               // disable taps
-                                  : (on) {
-                                if (on) selectedPerDate[date]!.add(i);
-                                else selectedPerDate[date]!.remove(i);
-                                (ctx as Element).markNeedsBuild();
-                              },
-                              backgroundColor: cancelledOnDate.contains(petIds[i])
-                                  ? Colors.grey.shade300               // grey bg when disabled
-                                  : AppColors.secondary.withOpacity(0.1), // your normal bg
-                              selectedColor: cancelledOnDate.contains(petIds[i])
-                                  ? null                               // no special color for disabled
-                                  : const Color(0xFF2CB4B6),           // primary color when selected
-                              disabledColor: Colors.grey.shade300,    // fallback disabled color
-                              checkmarkColor: cancelledOnDate.contains(petIds[i])
-                                  ? Colors.grey                       // grey checkmark if somehow selected
-                                  : Colors.white,                     // white checkmark normally
-                            ),
-                          );
-
-                        }),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary),
                       ),
                       SizedBox(height: 24),
-                    ],
-                    // Continue button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          padding: EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8)),
-                          elevation: 2,
+
+                      for (final date in openPoints) ...[
+                        Text(
+                          DateFormat('MMM dd, yyyy').format(date),
+                          style: GoogleFonts.poppins(
+                              fontSize: 14, fontWeight: FontWeight.w600),
                         ),
-                        onPressed: () {
-                          final cancellations = <DateTime, List<String>>{};
-                          selectedPerDate.forEach((date, idxs) {
-                            if (idxs.isNotEmpty) {
-                              cancellations[date] =
-                                  idxs.map((i) => petIds[i]).toList();
-                            }
-                          });
-                          if (cancellations.isEmpty) {
-                            ScaffoldMessenger.of(ctx).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Select at least one pet on any date',
-                                  style: GoogleFonts.poppins(),
+                        SizedBox(height: 8),
+
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: List.generate(petNames.length, (i) {
+                            final name = petNames[i];
+                            final isSel = selectedPerDate[date]!.contains(i);
+
+                            final key = DateFormat('yyyy-MM-dd').format(date);
+                            final cancelledOnDate = overrides[key] ?? <String>[];
+
+                            return Tooltip(
+                              message: cancelledOnDate.contains(petIds[i])
+                                  ? 'Already cancelled for this date'
+                                  : '',
+                              triggerMode: TooltipTriggerMode.tap,
+                              child: FilterChip(
+                                label: Text(
+                                  name,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 12,
+                                    fontWeight:
+                                    isSel ? FontWeight.w600 : FontWeight.w400,
+                                    color: cancelledOnDate.contains(petIds[i])
+                                        ? Colors.grey
+                                        : isSel
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
                                 ),
-                                backgroundColor: AppColors.error,
+                                selected: isSel,
+                                onSelected: cancelledOnDate.contains(petIds[i])
+                                    ? null
+                                    : (on) {
+                                  if (on) {
+                                    selectedPerDate[date]!.add(i);
+                                  } else {
+                                    selectedPerDate[date]!.remove(i);
+                                  }
+                                  (ctx as Element).markNeedsBuild();
+                                },
+                                backgroundColor: cancelledOnDate.contains(petIds[i])
+                                    ? Colors.grey.shade300
+                                    : AppColors.secondary.withOpacity(0.1),
+                                selectedColor:
+                                cancelledOnDate.contains(petIds[i])
+                                    ? Colors.grey.shade400
+                                    : const Color(0xFF2CB4B6),
+                                disabledColor: Colors.grey.shade300,
+                                checkmarkColor: cancelledOnDate.contains(petIds[i])
+                                    ? Colors.grey
+                                    : Colors.white,
                               ),
                             );
-                            return;
-                          }
-                          Navigator.of(ctx).pop(
-                            _CancelSelectionPerDate(cancellations: cancellations),
-                          );
-                        },
-                        child: Text(
-                          'Continue',
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                          }),
+                        ),
+
+                        SizedBox(height: 24),
+                      ],
+
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8)),
+                              elevation: 2),
+                          onPressed: () {
+                            final cancellations = <DateTime, List<String>>{};
+                            selectedPerDate.forEach((date, idxs) {
+                              if (idxs.isNotEmpty) {
+                                cancellations[date] =
+                                    idxs.map((i) => petIds[i]).toList();
+                              }
+                            });
+
+                            if (cancellations.isEmpty) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(
+                                  content: Text("Select at least one pet."),
+                                  backgroundColor: AppColors.error,
+                                ),
+                              );
+                              return;
+                            }
+
+                            Navigator.of(ctx).pop(
+                              _CancelSelectionPerDate(cancellations: cancellations),
+                            );
+                          },
+                          child: Text(
+                            "Continue",
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    SizedBox(height: 16),
-                  ],
-                ),
-              ),
+
+                      SizedBox(height: 16),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ),
@@ -414,52 +397,149 @@ Future<void> handleCancel(
 
   if (selection == null) return;
 
-  // 4) Pull cost data
-  final petSizes = (data['pet_sizes'] as List<dynamic>)
-      .cast<Map<String, dynamic>>();
+  // 4) pull cost data
+  final petSizes = (data['pet_sizes'] as List).cast<Map<String, dynamic>>();
   final cb = data['cost_breakdown'] as Map<String, dynamic>? ?? {};
+
   final walkCostPerDay =
       double.tryParse(cb['daily_walking_per_day']?.toString() ?? '') ?? 0.0;
+
   final mealCostPerDay =
       double.tryParse(cb['meal_per_day']?.toString() ?? '') ?? 0.0;
 
-  // 5) Compute daily per-pet cost
-  final rawIds = (data['pet_id'] as List<dynamic>).cast<String>();
   final settingsDoc = await FirebaseFirestore.instance
       .collection('settings')
       .doc('cancellation_time_brackets')
       .get();
-  final brackets = (settingsDoc.data()?['brackets'] as List<dynamic>?)
-      ?.cast<Map<String, dynamic>>() ??
-      [];
+
+  final brackets =
+  (settingsDoc.data()?['brackets'] as List<dynamic>? ?? [])
+      .cast<Map<String, dynamic>>();
+
   final adminPct = int.tryParse(
       settingsDoc.data()?['admin_cancel_fee_percentage']?.toString() ?? '0') ??
       0;
-  final providerPolicyMap = (data['refund_policy'] as Map<dynamic, dynamic>? ??
-      {})
+
+  final providerPolicyMap =
+  (data['refund_policy'] as Map<dynamic, dynamic>? ?? {})
       .map((k, v) => MapEntry(k.toString(), int.tryParse(v.toString()) ?? 0));
-  final Map<String,double> boardingPriceByPet = {
-    for (var i=0; i<petIds.length; i++)
-      petIds[i] : (petSizes[i]['price'] as num).toDouble(),
+
+  final Map<String, double> boardingPriceByPet = {
+    for (var i = 0; i < petIds.length; i++)
+      petIds[i]: (petSizes[i]['price'] as num).toDouble(),
   };
 
-  // 6) For each date & its selected pets, compute refunds and update
+  // 5) compute refund totals
   double grossTotal = 0.0;
   final attendanceUpdates = <String, List<String>>{};
+  final dayTotals = <DateTime, double>{};
+
   for (final entry in selection.cancellations.entries) {
     final date = entry.key;
     final petsOnThatDate = entry.value;
 
-    // daily cost per booking = sum of boarding + walk + meal per pet
     double dailyRefund = 0.0;
 
     for (final petId in petsOnThatDate) {
-      // Price just for this pet
-      final price = (boardingPriceByPet[petId] ?? 0.0);
-      final subtotal = price + walkCostPerDay + mealCostPerDay;
+      final base =
+          (boardingPriceByPet[petId] ?? 0) + walkCostPerDay + mealCostPerDay;
 
-      // Calculate refund for that single pet on this date
-      final petRefund = calculateTotalRefund(
+      final r = calculateTotalRefund(
+        now: now,
+        bookedDays: [date],
+        dailyTotalCost: base,
+        brackets: brackets,
+        providerPolicy: providerPolicyMap,
+      );
+
+      dailyRefund += r;
+    }
+
+    grossTotal += dailyRefund;
+    dayTotals[date] = dailyRefund;
+    attendanceUpdates[DateFormat('yyyy-MM-dd').format(date)] = petsOnThatDate;
+  }
+
+  final petNamesMap = Map<String, String>.fromIterables(petIds, petNames);
+
+  // -----------------------------------------------------------
+  // 🟦 ADD THIS BLOCK EXACTLY HERE — refund % explanation map
+  // -----------------------------------------------------------
+  final refundReasons = <DateTime, Map<String, String>>{};
+  final now2 = DateTime.now();
+
+  for (final entry in selection.cancellations.entries) {
+    final date = entry.key;
+    refundReasons[date] = {};
+
+    for (final petId in entry.value) {
+      final base =
+          (boardingPriceByPet[petId] ?? 0) + walkCostPerDay + mealCostPerDay;
+
+      final hoursUntil = date.difference(now2).inHours.toDouble();
+      final pct = calculateRefundPercent(
+        timeToStartInHours: hoursUntil,
+        brackets: brackets,
+        providerPolicy: providerPolicyMap,
+      );
+
+      refundReasons[date]![petId] =
+      "$pct% refund because cancelled ${hoursUntil.toStringAsFixed(0)}h before service start";
+    }
+  }
+  // -----------------------------------------------------------
+
+  // GST rate
+  final feesSnap = await FirebaseFirestore.instance
+      .collection('company_documents')
+      .doc('fees')
+      .get();
+
+  double gstRate = 0.18;
+  if (feesSnap.exists) {
+    final val = feesSnap.data()?['gst_rate_percent'];
+    if (val != null) {
+      final parsed = double.tryParse(val.toString()) ?? 18;
+      gstRate = parsed > 1 ? parsed / 100 : parsed;
+    }
+  }
+
+  // TAX SPLIT
+  final computedGross = grossTotal / (1 + gstRate);
+  final cancelledGst = computedGross * gstRate;
+
+  final adminFeeFinal = computedGross * adminPct / 100;
+  final adminGstFinal = adminFeeFinal * gstRate;
+
+  final netRefundWithGst =
+      (computedGross + cancelledGst) - adminFeeFinal - adminGstFinal;
+  final perPetPercents = <DateTime, Map<String, int>>{};
+  final perPetReasons = <DateTime, Map<String, String>>{};
+  final perPetRefunds = <DateTime, Map<String, double>>{};
+
+  for (final entry in selection.cancellations.entries) {
+    final date = entry.key;
+    perPetPercents[date] = {};
+    perPetReasons[date] = {};
+    perPetRefunds[date] = {};
+
+    for (final petId in entry.value) {
+      final boarding = boardingPriceByPet[petId]!;
+      final subtotal = boarding + walkCostPerDay + mealCostPerDay;
+
+      final hoursUntil = date.difference(now).inHours.toDouble();
+
+      final pct = calculateRefundPercent(
+        timeToStartInHours: hoursUntil,
+        brackets: brackets,
+        providerPolicy: providerPolicyMap,
+      );
+
+      perPetPercents[date]![petId] = pct;
+      perPetReasons[date]![petId] =
+      "You cancelled ${hoursUntil.toStringAsFixed(0)} hours early, so the boarder's policy allows $pct% refund.";
+
+      final r = calculateTotalRefund(
         now: now,
         bookedDays: [date],
         dailyTotalCost: subtotal,
@@ -467,49 +547,293 @@ Future<void> handleCancel(
         providerPolicy: providerPolicyMap,
       );
 
-      dailyRefund += petRefund;
-    }
-
-// Add to total refund
-    grossTotal += dailyRefund;
-    attendanceUpdates[DateFormat('yyyy-MM-dd').format(date)] = petsOnThatDate;
-  }
-
-
-  // 7) Build petNamesMap for invoice dialog
-  final petNamesMap = Map<String, String>.fromIterables(petIds, petNames);
-
-  // 🧾 Fetch GST rate once before showing dialog
-  final feesSnap = await FirebaseFirestore.instance
-      .collection('company_documents')
-      .doc('fees')
-      .get();
-
-  double gstRate = 0.18; // default
-  if (feesSnap.exists) {
-    final val = feesSnap.data()?['gst_rate_percent'];
-    if (val != null) {
-      final parsed = double.tryParse(val.toString()) ?? 18.0;
-      gstRate = parsed > 1 ? parsed / 100.0 : parsed;
+      perPetRefunds[date]![petId] = r;
     }
   }
 
-  showCancellationInvoiceDialog(
-    context: context,
-    cancellations: selection.cancellations,
-    petNamesMap: petNamesMap,
-    petSizes: petSizes,
-    boardingPriceByPet: boardingPriceByPet,
-    walkCostPerDay: walkCostPerDay,
-    mealCostPerDay: mealCostPerDay,
-    adminPct: adminPct,
-    providerPolicyMap: providerPolicyMap,
-    brackets: brackets,
-    requestRefund: requestRefund,
+
+  // OPEN FULL PAGE INVOICE
+  final approve = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => CancellationInvoicePage(
+        computedGross: computedGross,
+        cancelledGst: cancelledGst,
+        adminFeeFinal: adminFeeFinal,
+        netRefundWithGst: netRefundWithGst,
+        adminPct: adminPct,
+        cancellations: selection.cancellations,
+        petNamesMap: petNamesMap,
+        perDayTotals: dayTotals,
+        refundReasons: refundReasons, // 🔥 NEW
+        // ADD THESE
+        perPetRefunds: perPetRefunds,
+        perPetPercents: perPetPercents,
+        perPetReasons: perPetReasons,
+      ),
+    ),
+  );
+
+  if (approve != true) return;
+
+  // After confirm → run actual cancellation logic (update DB + refund)
+  await finalizeCancellationAndRefund(
     bookingDoc: bookingDoc,
-    gstRate: gstRate, // 👈 add this line
+    cancellations: attendanceUpdates,
+    grossTotal: grossTotal,
+    computedGross: computedGross,
+    cancelledGst: cancelledGst,
+    adminFee: adminFeeFinal,
+    adminGst: adminGstFinal,
+    netRefund: netRefundWithGst,
+    requestRefund: requestRefund,
   );
 }
+
+/// ------------------------------------------------------------
+/// FINAL: Cancels booking in Firestore + triggers refund API
+/// ------------------------------------------------------------
+Future<void> finalizeCancellationAndRefund({
+  required DocumentSnapshot bookingDoc,
+  required Map<String, List<String>> cancellations,
+  required double grossTotal,
+  required double computedGross,
+  required double cancelledGst,
+  required double adminFee,
+  required double adminGst,
+  required double netRefund,
+  required Future<String?> Function({
+  required String paymentId,
+  required double refundAmount,
+  }) requestRefund,
+}) async {
+
+  final firestore = FirebaseFirestore.instance;
+  final data = bookingDoc.data() as Map<String, dynamic>;
+  final now = DateTime.now();
+  final bookingRef = bookingDoc.reference;
+
+  final serviceId = data['service_id'] ?? data['sp_id'];
+  final paymentId = data['payment_id'];
+  final petIds = (data['pet_id'] as List).cast<String>();
+  final selectedDates = (data['selectedDates'] as List<dynamic>)
+      .map((d) => (d as Timestamp).toDate())
+      .toList();
+  final existingOverrides = (data['attendance_override'] as Map<String, dynamic>? ?? {})
+      .map((k, v) => MapEntry(k, (v as List).cast<String>()));
+
+  if (paymentId == null) {
+    debugPrint("❌ No paymentId found — cannot refund");
+    return;
+  }
+
+  // ---------------------------
+  // 1️⃣ CREATE BATCH
+  // ---------------------------
+  final batch = firestore.batch();
+
+  // ---------------------------
+  // 2️⃣ DECREMENT DAILY SUMMARY
+  // ---------------------------
+  cancellations.forEach((dateStr, pets) {
+    final summaryRef = firestore
+        .collection('users-sp-boarding')
+        .doc(serviceId)
+        .collection('daily_summary')
+        .doc(dateStr);
+
+    batch.update(summaryRef, {
+      'bookedPets': FieldValue.increment(-pets.length)
+    });
+  });
+
+  // ---------------------------
+  // 3️⃣ CALCULATE ADJUSTED SP FEE
+  // ---------------------------
+  final cb = data['cost_breakdown'] as Map<String, dynamic>? ?? {};
+  final originalSpFee =
+      double.tryParse(cb['sp_service_fee']?.toString() ?? '0') ?? 0.0;
+  final originalSpGst =
+      double.tryParse(cb['sp_service_gst']?.toString() ?? '0') ?? 0.0;
+
+  final adjustedSpFee = originalSpFee - computedGross;
+  final adjustedSpGst = (originalSpGst - cancelledGst).clamp(0, double.infinity);
+
+  // ---------------------------
+  // 4️⃣ UPDATE ATTENDANCE OVERRIDE
+  // ---------------------------
+  cancellations.forEach((dateStr, pets) {
+    existingOverrides[dateStr] = [
+      ...{...existingOverrides[dateStr] ?? [], ...pets}
+    ];
+  });
+
+  // ---------------------------
+  // 5️⃣ PERFORM RAZORPAY REFUND
+  // ---------------------------
+  final originalTotal = double.tryParse(cb['total_amount']?.toString() ?? '0') ?? 0;
+  final historySnap =
+  await bookingRef.collection('user_cancellation_history').get();
+
+  final alreadyRefunded = historySnap.docs.fold<double>(0, (sum, doc) {
+    final raw = doc['net_refund_including_gst']?.toString() ?? '0';
+    return sum + (double.tryParse(raw) ?? 0);
+  });
+
+  final remainingRefundable = (originalTotal - alreadyRefunded).clamp(0, double.infinity);
+  double refundToSend = double.parse(netRefund.toStringAsFixed(2));
+
+  if (refundToSend > remainingRefundable) {
+    refundToSend = remainingRefundable is double
+        ? remainingRefundable
+        : remainingRefundable.toDouble();
+  }
+
+  final refundId = await requestRefund(
+    paymentId: paymentId,
+    refundAmount: refundToSend,
+  );
+
+  // ---------------------------
+  // 6️⃣ UPDATE BOOKING DOCUMENT
+  // ---------------------------
+  batch.update(bookingRef, {
+    "refund_id": refundId,
+    "refunded_amount": refundToSend,
+    "refunded_before_gst": computedGross,
+    "refunded_gst": cancelledGst,
+    "admin_fee": adminFee,
+    "admin_gst": adminGst,
+    "attendance_override": existingOverrides,
+    "updatedAt": FieldValue.serverTimestamp(),
+    "status": "partially_cancelled",
+    "cost_breakdown.sp_service_fee": adjustedSpFee,
+    "cost_breakdown.sp_service_gst": adjustedSpGst,
+    "cost_breakdown.sp_total_with_gst": adjustedSpFee + adjustedSpGst,
+  });
+
+  // ---------------------------
+  // 7️⃣ WRITE CANCELLATION HISTORY
+  // ---------------------------
+  final historyEntry = {
+    "refund_requested_at": DateTime.now(),
+    "cancellation_details": {
+      for (final e in cancellations.entries)
+        e.key: e.value.map((id) => {"id": id}).toList()
+    },
+    "computed_gross": computedGross,
+    "admin_fee": adminFee,
+    "admin_gst": adminGst,
+    "net_refund_including_gst": refundToSend,
+    "refund_id": refundId,
+    "payment_id": paymentId,
+    "created_at": DateTime.now(),
+  };
+
+  batch.set(
+    bookingRef.collection("user_cancellation_history").doc(),
+    historyEntry,
+  );
+
+  // ---------------------------
+  // 8️⃣ COMMIT BATCH
+  // ---------------------------
+  await batch.commit();
+
+  // ---------------------------
+  // 9️⃣ ADMIN PAYOUT
+  // ---------------------------
+  if (adminFee > 0) {
+    await triggerAdminCancellationPayout(
+      orderId: bookingDoc.id,
+      adminFee: adminFee,
+    );
+  }
+
+  // ---------------------------
+  // 🔟 CHECK FULL CANCEL — MOVE BOOKING
+  // ---------------------------
+  final updatedDoc = await bookingRef.get();
+  final updatedOverrides = (updatedDoc['attendance_override'] as Map<String, dynamic>)
+      .map((k, v) => MapEntry(k, (v as List).cast<String>()));
+
+  final isFullCancel = selectedDates.every((day) {
+    final key = DateFormat('yyyy-MM-dd').format(day);
+    return petIds.every((p) => updatedOverrides[key]?.contains(p) ?? false);
+  });
+
+  if (!isFullCancel) return;
+
+  // MOVE BOOKING + SUBCOLLECTIONS
+  final sourceRef = firestore
+      .collection('users-sp-boarding')
+      .doc(serviceId)
+      .collection('service_request_boarding')
+      .doc(bookingDoc.id);
+
+  final destRef = firestore
+      .collection('users-sp-boarding')
+      .doc(serviceId)
+      .collection('cancellations')
+      .doc(bookingDoc.id);
+
+  final sourceData = (await sourceRef.get()).data();
+  if (sourceData != null) await destRef.set(sourceData);
+
+  final subNames = [
+    'pet_services',
+    'user_cancellation_history',
+    'sp_cancellation_history',
+  ];
+
+  for (final sub in subNames) {
+    final col = await sourceRef.collection(sub).get();
+    for (final doc in col.docs) {
+      await destRef.collection(sub).doc(doc.id).set(doc.data());
+      await doc.reference.delete();
+    }
+  }
+
+  await sourceRef.delete();
+
+  print("🎉 Booking fully cancelled and moved.");
+}
+
+
+/// ------------------------------------------------------------
+/// Razorpay refund API caller (basic version)
+/// ------------------------------------------------------------
+Future<String?> requestRefund({
+  required String paymentId,
+  required double refundAmount,
+}) async {
+  const refundUrl =
+      "https://razorpayrefundtest-urjpiqxoca-uc.a.run.app/razorpayRefundTest";
+
+  try {
+    final response = await http.post(
+      Uri.parse(refundUrl),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        "paymentId": paymentId,
+        "refundAmount": (refundAmount * 100).round(), // paise
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return json['refund']['id'];
+    } else {
+      debugPrint("Refund Error: ${response.body}");
+      return null;
+    }
+  } catch (e) {
+    debugPrint("Refund Exception: $e");
+    return null;
+  }
+}
+
+
 Future<void> _triggerSpFullCancelPayout({
   required String serviceId,
   required String bookingId,
@@ -616,6 +940,32 @@ void showCancellationInvoiceDialog({
     pageBuilder: (ctx, animation, secondaryAnimation) {
       final now = DateTime.now();
       final dates = cancellations.keys.toList()..sort();
+      // -----------------------------------------------------------
+// BUILD refundReasons (same as handleCancel)
+// -----------------------------------------------------------
+      final refundReasons = <DateTime, Map<String, String>>{};
+      final now2 = DateTime.now();
+
+      for (final entry in cancellations.entries) {
+        final date = entry.key;
+        refundReasons[date] = {};
+
+        for (final petId in entry.value) {
+          final boarding = boardingPriceByPet[petId]!;
+          final subtotal = boarding + walkCostPerDay + mealCostPerDay;
+
+          final hoursUntil = date.difference(now2).inHours.toDouble();
+          final pct = calculateRefundPercent(
+            timeToStartInHours: hoursUntil,
+            brackets: brackets,
+            providerPolicy: providerPolicyMap,
+          );
+
+          refundReasons[date]![petId] =
+          "$pct% refund because cancelled ${hoursUntil.toStringAsFixed(0)}h before start";
+        }
+      }
+
       // ── Compute gross via your helper, not by hand ─────────────────
       // ── Build per-pet daily cost ─────────────────────────────
       final perPetDaily = petSizes
@@ -907,6 +1257,14 @@ void showCancellationInvoiceDialog({
                                             color: Colors.grey.shade600,
                                           ),
                                         ),
+                                        Text(
+                                          refundReasons[day]?[petId] ?? '',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+
                                       ],
                                     ),
                                     const SizedBox(width: 16),
@@ -1766,6 +2124,8 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => ConfirmationPage(
+                    gstRegistered: data['gstRegistered'] ?? false,
+                    checkoutEnabled: data['checkoutEnabled'] ?? false,
                     boarding_rate: boardingCost,
                     perDayServices: perDayServices,
                     petIds: petIds,

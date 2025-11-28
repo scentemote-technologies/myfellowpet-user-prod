@@ -405,6 +405,7 @@ class BoardingParametersSelectionPage extends StatefulWidget {
   final Map<String, int> mealRates;
   final Map<String, int> refundPolicy;
   final String fullAddress;
+  final String areaName;
   final Map<String, int> walkingRates;
   final Map<String, dynamic> feedingDetails;
   final String? initialSelectedPet;
@@ -428,7 +429,7 @@ class BoardingParametersSelectionPage extends StatefulWidget {
     required this.fullAddress,
     required this.walkingRates,
     required this.feedingDetails,
-    this.initialSelectedPet,
+    this.initialSelectedPet, required this.areaName,
   });
 
   @override
@@ -516,6 +517,25 @@ class _BoardingParametersSelectionPageState
   Map<String, dynamic>? _foodInfo;
   late Future<List<Map<String, dynamic>>> _petListFuture;
   List<Map<String, dynamic>> _allPets = [];
+  late bool gstRegistered = true; // default true
+  late bool checkoutEnabled = true; // default true
+
+  Future<void> _fetchGstFlag() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('users-sp-boarding')
+        .doc(widget.serviceId)
+        .get();
+
+    gstRegistered = doc.data()?['gst_registered'] == true;
+  }
+  Future<void> _fetchCheckOutEnabledFlag() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('company_documents')
+        .doc("payment")
+        .get();
+
+    checkoutEnabled = doc.data()?['checkoutEnabled'] == true;
+  }
 
   // ✨ --- OPTIMIZATION 1 ---
   // Fetches all selected pet documents in a single query instead of N+1 loops.
@@ -581,6 +601,8 @@ class _BoardingParametersSelectionPageState
   @override
   void initState() {
     super.initState();
+    _fetchGstFlag();
+    _fetchCheckOutEnabledFlag();
     _petPricingFuture = _fetchPetPricing(widget.serviceId);
     _fetchPetDocIds().then((_) {
       if (_selectedPet != null) {
@@ -1229,6 +1251,10 @@ class _BoardingParametersSelectionPageState
           .doc();
 
       final mainBookingData = {
+        // ⭐ ADD THESE TWO
+        'gstRegistered': gstRegistered,
+        'checkoutEnabled': checkoutEnabled,
+
         // ... (mainBookingData remains the same, using totalBoardingCost, totalWalkingCost, totalMealsCost)
         'order_status': 'pending_payment',
         'admin_account_number': '2323230014933488',
@@ -1239,7 +1265,6 @@ class _BoardingParametersSelectionPageState
         "source": "sp",
         "pet_name": _selectedPetNames,
         "full_address": widget.fullAddress,
-        'original_total_amount': grandTotal,
         'pet_images': _selectedPetImages,
         'pet_id': _selectedPetIds,
         'pet_sizes': _petSizesList,
@@ -1252,22 +1277,36 @@ class _BoardingParametersSelectionPageState
         'email': uData['email'] ?? '',
         'user_location': uData['user_location'],
         'timestamp': FieldValue.serverTimestamp(),
-        'cost_breakdown': {
-          'boarding_cost': totalBoardingCost.toStringAsFixed(2),
-          'daily_walking_cost': totalWalkingCost.toStringAsFixed(2), // Use total walking cost
-          'meals_cost': totalMealsCost.toStringAsFixed(2),           // Use total meals cost
-          'sp_service_fee': spServiceFee.toStringAsFixed(2),
-          'sp_service_gst_fee': spServiceGst.toStringAsFixed(2),
-          'sp_total_with_gst': (spServiceFee + spServiceGst).toStringAsFixed(2),
-          'platform_fee': f.platform.toStringAsFixed(2),
-          'platform_fee_gst': f.gst.toStringAsFixed(2),
-          'platform_fee_plus_gst': (f.platform + f.gst).toStringAsFixed(2),
-          'total_amount': grandTotal.toStringAsFixed(2),
-        },
-        'sp_service_fee_exc_gst': spServiceFee.toStringAsFixed(2),
-        'sp_service_fee_inc_gst': (spServiceFee + spServiceGst).toStringAsFixed(2),
+        // --- SIMPLE PAYMENT MODEL ---
+
+// SP Earnings
+        'sp_service_fee_exc_gst': spServiceFee,
+        'sp_service_fee_inc_gst': spServiceFee + spServiceGst,
+        'gst_on_sp_service': spServiceGst,
+
+// Admin Earnings
+        'platform_fee_exc_gst': f.platform,
+        'platform_fee_inc_gst': f.platform + f.gst,
+        'gst_on_platform_fee': f.gst,
+
+// User Paid = SP inc GST + Platform inc GST  (NO grandTotal)
+        'total_amount_paid': (spServiceFee + spServiceGst) + (f.platform + f.gst),
+
+// Refund System
+        'remaining_refundable_amount': spServiceFee + spServiceGst, // only SP part refundable
+        'total_refunded_amount': 0,
+
+// Admin keeps this
+        'admin_fee_collected_total': f.platform,
+        'admin_fee_gst_collected_total': f.gst,
+
+
+        // ✨ 3. Save the new pet cost breakdown array in the main booking data
+        'petCostBreakdown': petCostBreakdown,
+
 
         'shopName': widget.shopName,
+        'areaName': widget.areaName,
         'shop_image': widget.shopImage,
         'selectedDates': selectedDates,
         'openTime': widget.open_time,
@@ -1277,8 +1316,6 @@ class _BoardingParametersSelectionPageState
         'admin_called': false,
         'refund_policy': widget.refundPolicy,
         'referral_code_used': false,
-        // ✨ 3. Save the new pet cost breakdown array in the main booking data
-        'petCostBreakdown': petCostBreakdown,
       };
 
       // ... (Transaction logic remains the same)
@@ -1347,6 +1384,20 @@ class _BoardingParametersSelectionPageState
         context,
         MaterialPageRoute(
           builder: (_) => SummaryPage(
+            spServiceFeeExcGst: spServiceFee,
+            spServiceFeeIncGst: spServiceFee + spServiceGst,
+            gstOnSpService: spServiceGst,
+
+            platformFeeExcGst: f.platform,
+            platformFeeIncGst: f.platform + f.gst,
+            gstOnPlatformFee: f.gst,
+
+            totalAmountPaid: (spServiceFee + spServiceGst) + (f.platform + f.gst),
+            remainingRefundableAmount: spServiceFee + spServiceGst,
+            totalRefundedAmount: 0,
+
+            adminFeeTotal: f.platform,
+            adminFeeGstTotal: f.gst,
             mode: widget.mode,
             boarding_rate: totalBoardingCost, // Pass total boarding cost for legacy field
             bookingId: bookingRef.id,
@@ -1375,6 +1426,7 @@ class _BoardingParametersSelectionPageState
             selectedDates: selectedDates,
             serviceId: widget.serviceId,
             sp_location: widget.sp_location,
+            areaNameOnly: widget.areaName,
             areaName: widget.fullAddress,
             foodOption: totalMealsCost > 0 ? 'provider' : 'self',
             foodInfo: null,

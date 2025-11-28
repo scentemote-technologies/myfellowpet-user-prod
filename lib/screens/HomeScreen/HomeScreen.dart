@@ -27,7 +27,6 @@ import '../Boarding/boarding_confirmation_page.dart';
 import '../Boarding/boarding_homepage.dart';
 import '../Pets/AddPetPage.dart';
 import '../Search Bars/search_bar.dart';
-import '../pet_store/PetStoreHomePage.dart';
 import 'AllActiveOrdersPage.dart';
 
 // -----------------------------------------------------------------------------
@@ -425,28 +424,43 @@ class _HomeScreenState extends State<HomeScreen> {
 
   SliverToBoxAdapter _buildFooter() {
     return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 40, 16, 32),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 50, 16, 50),
+
+
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center, // CENTER ALIGN
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center, // CENTER EVERYTHING
           children: [
-            Text(
-              'With love ❤️',
-              style: GoogleFonts.poppins(
-                fontSize: 20,            // BIGGER
-                fontWeight: FontWeight.w500,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'MyFellowPet',
-              style: GoogleFonts.poppins(
-                fontSize: 28,            // BIGGER NAME
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade700,
-                height: 1.1,
-              ),
+            // ❤️ TEXT BELOW LOGO
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  "Made with ",
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                Text(
+                  "❤️",
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    color: Colors.red,
+                  ),
+                ),
+                Text(
+                  " in Bengaluru, India",
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -933,6 +947,8 @@ class _ActiveOrderBannerState extends State<ActiveOrderBanner> with SingleTicker
         context,
         MaterialPageRoute(
           builder: (_) => ConfirmationPage(
+            gstRegistered: data['gstRegistered'] ?? false,
+            checkoutEnabled: data['checkoutEnabled'] ?? false,
             perDayServices: perDayServices,
             petIds: petIds,
             foodCost: foodCost,

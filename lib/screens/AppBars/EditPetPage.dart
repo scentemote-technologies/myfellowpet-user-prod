@@ -91,6 +91,14 @@ class EditPetPage extends StatefulWidget {
 }
 
 class _EditPetPageState extends State<EditPetPage> {
+
+  final List<String> _sizeRanges = [
+    'Small',
+    'Medium',
+    'Large',
+    'Giant',
+  ];
+  String? _selectedSize;
   // UI Colors
   static const Color teal = Color(0xFF25ADAD);
   static const Color accent = Color(0xFF3D3D3D);
@@ -164,6 +172,7 @@ class _EditPetPageState extends State<EditPetPage> {
 
   void _initializeFields() {
     final data = widget.initialData;
+    _selectedSize = data['size'];
     _nameCtl = TextEditingController(text: data['name'] ?? '');
     _ageCtl = TextEditingController(text: data['pet_age'] ?? '');
     _historyCtl = TextEditingController(text: data['medical_history'] ?? '');
@@ -369,17 +378,26 @@ class _EditPetPageState extends State<EditPetPage> {
     if (!_formKey.currentState!.validate() || _isEditLocked) return;
     setState(() => _saving = true);
 
-    final docRef = FirebaseFirestore.instance
+    // 1. Reference to the specific Pet Document
+    final petDocRef = FirebaseFirestore.instance
         .collection('users')
         .doc(widget.userUid)
         .collection('users-pets')
         .doc(widget.petId);
+
+    // 2. Reference to the Main User Document (for the tracking map)
+    final userDocRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.userUid);
 
     Map<String, dynamic> dataToUpdate = {
       'name': _nameCtl.text.trim(),
       'pet_age': _ageCtl.text.trim(),
       'pet_type': _selectedType,
       'pet_breed': _selectedBreed,
+
+      'size': _selectedSize, // ✨ ADDED: Save the size
+
       'gender': _gender,
       'is_neutered': _isNeutered,
       'weight_type': _weightType,
@@ -402,9 +420,12 @@ class _EditPetPageState extends State<EditPetPage> {
       'vet_name': _vetNameCtl.text.trim(),
       'vet_phone': _vetPhoneCtl.text.trim(),
       'emergency_contact': _emergencyContactCtl.text.trim(),
+
+      // We still update the pet's own timestamp
       'lastEditedAt': FieldValue.serverTimestamp(),
     };
 
+    // --- Image & PDF Upload Logic (Unchanged) ---
     if (_newCroppedProfileImage != null) {
       final ref =
       FirebaseStorage.instance.ref('pets/${widget.petId}_profile.jpg');
@@ -431,9 +452,20 @@ class _EditPetPageState extends State<EditPetPage> {
       _existingExtraImageUrls.add(await ref.getDownloadURL());
     }
     dataToUpdate['pet_images'] = _existingExtraImageUrls;
+    // ---------------------------------------------
 
     try {
-      await docRef.update(dataToUpdate);
+      // 1. Update the Pet Document
+      await petDocRef.update(dataToUpdate);
+
+      // 2. ✨ ADDED: Update the User Document with the Tracking Map
+      // This allows you to track specific pet edits without reading every pet doc.
+      await userDocRef.set({
+        'pet_edit_tracking': {
+          widget.petId: FieldValue.serverTimestamp() // Key: PetID, Value: Time
+        }
+      }, SetOptions(merge: true));
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -567,6 +599,7 @@ class _EditPetPageState extends State<EditPetPage> {
         _buildTextFormField(_ageCtl, 'Age (years)', keyboardType: TextInputType.number),
         const SizedBox(height: 16),
         // Type
+
         _buildDropdown(_selectedType, _petTypes.where((t) => t.display).map((t) => t.id).toList(), 'Pet Type', (val) {
           setState(() {
             _selectedType = val;
@@ -603,7 +636,15 @@ class _EditPetPageState extends State<EditPetPage> {
           onChanged: _isEditLocked ? null : (v) => setState(() => _isNeutered = v),
         ),
         const SizedBox(height: 16),
-        // Weight
+
+        // ✨ ADD THIS: Size Dropdown
+        _buildDropdown(
+            _selectedSize,
+            _sizeRanges,
+            'Size Range',
+                (val) => setState(() => _selectedSize = val)
+        ),
+        const SizedBox(height: 16),        // Weight
         _buildHeader('Weight'),
         Row(
           children: ['exact', 'range'].map((g) => Expanded(
@@ -1358,7 +1399,7 @@ class _EditPetPageState extends State<EditPetPage> {
         padding: const EdgeInsets.all(24),
         color: Colors.grey.shade200,
         child: Text(
-          'You can edit again in $_daysLeft days.',
+          'You can edit again in $_daysLeft day(s).',
           textAlign: TextAlign.center,
           style: GoogleFonts.poppins(
               color: Colors.grey.shade700, fontWeight: FontWeight.w500),
@@ -1380,7 +1421,7 @@ class _EditPetPageState extends State<EditPetPage> {
           ? const Center(child: CircularProgressIndicator(color: teal))
           : ElevatedButton.icon(
         onPressed: _saveChanges,
-        icon: const Icon(Icons.save_alt_outlined),
+        icon: const Icon(Icons.save_alt_outlined, color: Colors.white,),
         label: const Text("Save Changes"),
         style: ElevatedButton.styleFrom(
           backgroundColor: teal,

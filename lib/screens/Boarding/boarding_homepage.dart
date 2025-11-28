@@ -42,14 +42,37 @@ double _distanceBetween(double lat1, double lon1, double lat2, double lon2) {
 
 // 🎯 TOP-LEVEL ISOLATE FUNCTION
 // Runs all filter checks in the background to prevent UI blocking.
+// 🎯 TOP-LEVEL ISOLATE FUNCTION
+// Runs all filter checks in the background to prevent UI blocking.
+// 🎯 TOP-LEVEL ISOLATE FUNCTION
+// Runs all filter checks in the background to prevent UI blocking.
 List<Map<String, dynamic>> _filterCardsInBackground(Map<String, dynamic> payload) {
-  // --- 1. Deserialize Inputs (CRUCIAL STEP) ---
-  final List<Map<String, dynamic>> cards = payload['cards'].cast<Map<String, dynamic>>();
-  final Set<String> hidden = (payload['hidden'] as List<dynamic>).cast<String>().toSet();
-  final Set<String> liked = (payload['liked'] as List<dynamic>).cast<String>().toSet();
-  final Map<String, double> distances = payload['distances'].cast<String, double>();
-  final List<String> selectedPetTypes = (payload['selectedPetTypes'] as List<dynamic>).cast<String>().map((s) => s.toLowerCase()).toSet().toList();
+  // ---------------------------------------------------------------------------
+  // 1. DESERIALIZE PAYLOAD (Extract data sent from main thread)
+  // ---------------------------------------------------------------------------
 
+  // Basic Lists and Sets
+  final rawCards = payload['cards'] as List<dynamic>;
+  final List<Map<String, dynamic>> cards = rawCards.map((e) => Map<String, dynamic>.from(e as Map)).toList();  final Set<String> hidden =
+  (payload['hidden'] as List<dynamic>).cast<String>().toSet();
+  final Set<String> liked =
+  (payload['liked'] as List<dynamic>).cast<String>().toSet();
+  final List<String> selectedPetTypes =
+  (payload['selectedPetTypes'] as List<dynamic>)
+      .cast<String>()
+      .map((s) => s.toLowerCase())
+      .toSet()
+      .toList();
+  final Set<String> selectedRunTypes =
+  (payload['selectedRunTypes'] as List<dynamic>).cast<String>().toSet();
+
+  // Maps
+  final Map<String, double> distances =
+  payload['distances'].cast<String, double>();
+  final Map<String, int> serviceMaxAllowed =
+  payload['serviceMaxAllowed'].cast<String, int>();
+
+  // Simple Variables
   final double filterMinPrice = payload['selectedPriceRange'][0];
   final double filterMaxPrice = payload['selectedPriceRange'][1];
   final double stateMinPrice = payload['minPrice'];
@@ -58,24 +81,27 @@ List<Map<String, dynamic>> _filterCardsInBackground(Map<String, dynamic> payload
   final bool showOffersOnly = payload['showOffersOnly'];
   final bool showFavoritesOnly = payload['showFavoritesOnly'];
   final bool showCertifiedOnly = payload['showCertifiedOnly'];
-  final Set<String> selectedRunTypes = (payload['selectedRunTypes'] as List<dynamic>).cast<String>().toSet();
   final String searchQuery = payload['searchQuery'].toLowerCase();
 
-  // Availability Data Deserialization
-  final List<DateTime> filterDates = (payload['filterDates'] as List<dynamic>).map((s) => DateTime.parse(s.toString())).toList();
+  // 🔥 AVAILABILITY DATA (Now using Strings)
   final int filterPetCount = payload['filterPetCount'];
+  // We receive a list of "yyyy-MM-dd" strings directly
+  final List<String> filterDateStrings =
+  (payload['filterDateStrings'] as List<dynamic>).cast<String>();
 
-  final Map<String, Map<DateTime, int>> allBookingCounts = (payload['allBookingCounts'] as Map<String, dynamic>).map((sid, dateMap) {
-    final Map<DateTime, int> counts = {};
-    (dateMap as Map<String, dynamic>).forEach((dateString, count) {
-      counts[DateTime.parse(dateString)] = count as int;
-    });
-    return MapEntry(sid, counts);
+  // We reconstruct the map. It is now Map<String, Map<String, int>>
+  // Key 1: Service ID, Key 2: Date String ("2025-12-04"), Value: Count
+  final Map<String, Map<String, int>> allBookingCounts =
+  (payload['allBookingCounts'] as Map<String, dynamic>).map((sid, dateMap) {
+    return MapEntry(sid, (dateMap as Map<String, dynamic>).cast<String, int>());
   });
-  final Map<String, int> serviceMaxAllowed = payload['serviceMaxAllowed'].cast<String, int>();
 
-  // --- 2. Heavy Filtering Logic ---
+  // ---------------------------------------------------------------------------
+  // 2. FILTERING LOGIC
+  // ---------------------------------------------------------------------------
+
   final filteredList = cards.where((service) {
+    // Extract service details safely
     final id = service['service_id']?.toString() ?? '';
     final shopName = service['shopName']?.toString().toLowerCase() ?? '';
     final areaName = service['areaName']?.toString().toLowerCase() ?? '';
@@ -83,74 +109,105 @@ List<Map<String, dynamic>> _filterCardsInBackground(Map<String, dynamic> payload
     final certified = service['mfp_certified'] as bool? ?? false;
     final runType = service['type'] as String? ?? '';
     final serviceMinPrice = (service['min_price'] as num?)?.toDouble() ?? 0.0;
-    final serviceMaxPrice = (service['max_price'] as num?)?.toDouble() ?? 0.0;
+    // Unused but extracted for completeness:
+    // final serviceMaxPrice = (service['max_price'] as num?)?.toDouble() ?? 0.0;
     final dKm = distances[id] ?? double.infinity;
 
-    // 1. Search Query Filter
-    if (searchQuery.isNotEmpty && !shopName.contains(searchQuery) && !areaName.contains(searchQuery)) {
-      return false;
+    // --- A. Basic Text Search ---
+    if (searchQuery.isNotEmpty) {
+      if (!shopName.contains(searchQuery) && !areaName.contains(searchQuery)) {
+        return false;
+      }
     }
 
-    // 2. Hidden Service Filter
+    // --- B. Hidden Services ---
     if (hidden.contains(id)) {
       return false;
     }
 
-    // 3. Offer Filter
-    if (showOffersOnly && !isOfferActive) {
-      return false;
-    }
-
-    // 4. Favorites Filter
+    // --- C. Favorites Only ---
     if (showFavoritesOnly && !liked.contains(id)) {
       return false;
     }
 
-    // 5. Species Filter
+    // --- D. Offers Only ---
+    if (showOffersOnly && !isOfferActive) {
+      return false;
+    }
+
+    // --- E. Certified Only (MFP Premium) ---
+    if (showCertifiedOnly && !certified) {
+      return false;
+    }
+
+    // --- F. Run Type Filter ---
+    if (selectedRunTypes.isNotEmpty && !selectedRunTypes.contains(runType)) {
+      return false;
+    }
+
+    // --- G. Pet Species Compatibility ---
     if (selectedPetTypes.isNotEmpty) {
       final acceptedPetsLower = (service['pets'] as List<dynamic>? ?? [])
           .map((p) => p.toString().toLowerCase())
           .toList();
+      // If service doesn't accept ANY of the selected types, filter it out
       if (!selectedPetTypes.any((selectedPet) => acceptedPetsLower.contains(selectedPet))) {
         return false;
       }
     }
 
-    // 6. Price Filter
+    // --- H. Price Range Filter ---
+    // Only check if the user has actually moved the sliders away from global min/max
     if (filterMaxPrice < stateMaxPrice || filterMinPrice > stateMinPrice) {
-      final priceMatches = (filterMaxPrice >= serviceMinPrice) && (filterMinPrice <= serviceMaxPrice);
-      if (!priceMatches) {
+      // Check for overlap between user range and service range
+      // Logic: (UserMax >= ServiceMin) AND (UserMin <= ServiceMax)
+      // Note: We use the service's Max Price here
+      final sMax = (service['max_price'] as num?)?.toDouble() ?? 0.0;
+
+      final bool overlaps = (filterMaxPrice >= serviceMinPrice) &&
+          (filterMinPrice <= sMax);
+      if (!overlaps) {
         return false;
       }
     }
 
-    // 7. Distance Filter
+    // --- I. Distance Filter ---
     if (selectedDistanceOption.isNotEmpty) {
-      final maxKm = double.tryParse(selectedDistanceOption.replaceAll(RegExp(r'[^0-9.]'), '')) ?? double.infinity;
+      final maxKm = double.tryParse(
+          selectedDistanceOption.replaceAll(RegExp(r'[^0-9.]'), '')
+      ) ?? double.infinity;
+
       if (dKm > maxKm) {
         return false;
       }
     }
 
-    // 8. Availability Filter (The GC heavy check)
-    if (filterDates.isNotEmpty && filterPetCount > 0) {
+    // --- J. AVAILABILITY CHECK (Capacity & Holidays) ---
+    // This is the updated logic using String keys to prevent timezone bugs
+    if (filterDateStrings.isNotEmpty && filterPetCount > 0) {
       final bookingCounts = allBookingCounts[id] ?? {};
       final maxAllowed = serviceMaxAllowed[id] ?? 0;
 
-      for (final date in filterDates) {
-        final usedSlots = bookingCounts[date] ?? 0;
-        if (usedSlots + filterPetCount > maxAllowed) {
+      for (final dateKey in filterDateStrings) {
+        // Look up using "yyyy-MM-dd" string key directly.
+        final usedSlots = bookingCounts[dateKey] ?? 0;
+
+        if (usedSlots >= 999) {
           return false;
         }
-      }
-    }
 
-    // 9. Certified & Run Type Filters
-    if (showCertifiedOnly && !certified) {
-      return false;
-    }
-    if (selectedRunTypes.isNotEmpty && !selectedRunTypes.contains(runType)) {
-      return false;
+        if ((usedSlots + filterPetCount) > maxAllowed) {
+          return false;
+        }
+
+
+
+        // 2. Capacity Check
+        if ((usedSlots + filterPetCount) > maxAllowed) {
+          return false; // Not enough space, reject service
+        }
+
+      }
     }
 
     return true;
@@ -158,10 +215,6 @@ List<Map<String, dynamic>> _filterCardsInBackground(Map<String, dynamic> payload
 
   return filteredList;
 }
-
-// -------------------------------------------------------------------------
-// --- TOP LEVEL DIALOGS AND HELPERS (Unchanged functionality) ---
-// -------------------------------------------------------------------------
 
 void _showHideConfirmationDialog(
     BuildContext context,
@@ -489,71 +542,94 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
     });
   }
 
-  // 🎯 NEW METHOD: Collects data and initiates the background filter
   void _startFiltering() async {
-    // Prevent starting a new filter if one is already running or provider isn't ready
+    // 1. Prevent overlapping runs
     if (_isFiltering) return;
 
     final cardsProv = context.read<BoardingCardsProvider>();
-    if (!cardsProv.ready) return; // Wait for cards to load
+    if (!cardsProv.ready) return;
 
+    // 2. Turn ON the spinner
     setState(() => _isFiltering = true);
 
-    final favProv = context.read<FavoritesProvider>();
-    final hideProv = context.read<HiddenServicesProvider>();
-    final distProv = context.read<DistanceProvider>();
+    try {
+      final favProv = context.read<FavoritesProvider>();
+      final hideProv = context.read<HiddenServicesProvider>();
+      final distProv = context.read<DistanceProvider>();
 
-    // Convert DateTime objects to strings for serialization
-    final allBookingCountsSerializable = _allBookingCounts.map((sid, dateMap) => MapEntry(
-        sid,
-        dateMap.map((dt, count) => MapEntry(dt.toIso8601String(), count))
-    ));
-    final filterDatesStrings = _filterDates.map((d) => d.toIso8601String()).toList();
+      // 3. Date Formatting (String Comparison Fix)
+      final List<String> filterDateStrings = _filterDates
+          .map((d) => DateFormat('yyyy-MM-dd').format(d))
+          .toList();
 
-    // Convert RangeValues to list of doubles
-    final selectedPriceRangeList = [_selectedPriceRange.start, _selectedPriceRange.end];
+      // 4. 🔥 CRITICAL FIX: SANITIZE CARDS DATA
+      // We explicitly create a new list containing ONLY simple types.
+      // This removes GeoPoints/Timestamps that crash the Isolate.
+      final List<Map<String, dynamic>> safeCards = cardsProv.cards.map((c) {
+        return {
+          'service_id': c['service_id']?.toString() ?? '',
+          'shopName': c['shopName']?.toString() ?? '',
+          'areaName': c['areaName']?.toString() ?? '',
+          'isOfferActive': c['isOfferActive'] ?? false,
+          'mfp_certified': c['mfp_certified'] ?? false,
+          'type': c['type']?.toString() ?? '',
+          'min_price': c['min_price'] ?? 0.0,
+          'max_price': c['max_price'] ?? 0.0,
+          'pets': c['pets'] ?? [], // Lists of strings are safe
+          // Note: We do NOT pass 'location' or 'timestamp' here
+        };
+      }).toList();
 
-    // 1. Prepare the serializable payload
-    final payload = {
-      // --- Card & Filter Data ---
-      'cards': cardsProv.cards,
-      'liked': favProv.liked.toList(),
-      'hidden': hideProv.hidden.toList(),
-      'distances': distProv.distances,
-      'selectedPetTypes': _selectedPetTypes.toList(),
-      'selectedPriceRange': selectedPriceRangeList,
-      'selectedDistanceOption': _selectedDistanceOption,
-      'showOffersOnly': _showOffersOnly,
-      'showFavoritesOnly': _showFavoritesOnly,
-      'showCertifiedOnly': _showCertifiedOnly,
-      'selectedRunTypes': _selectedRunTypes.toList(),
-      'searchQuery': _searchQuery,
-      'minPrice': _minPrice,
-      'maxPrice': _maxPrice,
+      // 5. Construct Payload
+      final payload = {
+        'cards': safeCards, // Passing the safe list
+        'distances': distProv.distances,
+        'liked': favProv.liked.toList(),
+        'hidden': hideProv.hidden.toList(),
+        'selectedPetTypes': _selectedPetTypes.toList(),
+        'selectedPriceRange': [_selectedPriceRange.start, _selectedPriceRange.end],
+        'selectedDistanceOption': _selectedDistanceOption,
+        'showOffersOnly': _showOffersOnly,
+        'showFavoritesOnly': _showFavoritesOnly,
+        'showCertifiedOnly': _showCertifiedOnly,
+        'selectedRunTypes': _selectedRunTypes.toList(),
+        'searchQuery': _searchQuery,
+        'minPrice': _minPrice,
+        'maxPrice': _maxPrice,
+        'filterPetCount': _filterPetCount,
+        'filterDateStrings': filterDateStrings,
+        'allBookingCounts': _allBookingCounts,
+        'serviceMaxAllowed': _serviceMaxAllowed,
+      };
 
-      // --- Availability Data (Converted to String/Int) ---
-      'filterDates': filterDatesStrings,
-      'filterPetCount': _filterPetCount,
-      'allBookingCounts': allBookingCountsSerializable,
-      'serviceMaxAllowed': _serviceMaxAllowed,
-    };
+      // 6. Run Isolate
+      final List<Map<String, dynamic>> result = await compute(
+        _filterCardsInBackground,
+        payload,
+      );
 
-    // 2. Execute the heavy lifting in a background isolate
-    // We use compute from 'flutter/foundation.dart'
-    final List<Map<String, dynamic>> result = await compute(
-      _filterCardsInBackground,
-      payload,
-    );
+      // 7. Update UI (Turn OFF spinner)
+      if (mounted) {
+        setState(() {
+          // We need to map the result back to the original full objects
+          // so the UI has all data (like images) to display.
+          // We filter the *original* list based on the IDs returned by the isolate.
+          final Set<String> validIds = result.map((r) => r['service_id'] as String).toSet();
 
-    // 3. Update the UI state with the result
-    if (mounted) {
-      setState(() {
-        _filteredServices = result;
-        _isFiltering = false;
-      });
+          _filteredServices = cardsProv.cards
+              .where((c) => validIds.contains(c['service_id']))
+              .toList();
+
+          _isFiltering = false;
+        });
+      }
+    } catch (e) {
+      // CRITICAL: Turn off spinner if error occurs
+      if (mounted) {
+        setState(() => _isFiltering = false);
+      }
     }
   }
-
 
   late Timer _timer;
   late Future<void> _videoInit;
@@ -667,7 +743,6 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
       setState(() {
         _priceFilterLoaded = false;
       });
-      debugPrint('Error loading price filter: $e');
     }
   }
 
@@ -677,7 +752,14 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
     final header = Provider.of<HeaderData>(context);
     _greeting = header.greeting;
     _mediaUrl = header.mediaUrl;
-    // 🚨 TWEAK: Call filtering here to ensure it runs when providers update (like Distance)
+// 👇 ADD THESE LINES to watch for changes in hidden/favorites
+    // By accessing them with Provider.of(context), this method will re-run
+    // whenever they change.
+    Provider.of<HiddenServicesProvider>(context);
+    Provider.of<FavoritesProvider>(context);
+
+    // Then call filter
+    _startFiltering();
 
   }
 
@@ -807,7 +889,6 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
       // This catches GPS timeouts or platform errors
       if(mounted) setState(() => _locationPermissionDenied = true);
       _startFiltering(); // Still filter the cards, just without distance
-      debugPrint('Location Fetch Error: $e'); // Log the actual error
     }
   }
 
@@ -851,10 +932,8 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
       List.from(userPreferencesDoc.get('liked') ?? []);
       setState(() {
         isLiked = likedServices.contains(serviceId);
-        print('Service $serviceId liked status: $isLiked');
       });
     } else {
-      print('User preferences document does not exist. Creating a new one...');
       await userPreferencesRef.set({
         'liked': [serviceId]
       });
@@ -1130,9 +1209,11 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
         resizeToAvoidBottomInset: true,
 
         // ─── Filter Drawer ─────────────────────────────────
+        // ─── IMPROVED FILTER DRAWER ─────────────────────────
         endDrawer: Drawer(
           backgroundColor: Colors.white,
           elevation: 0,
+          width: MediaQuery.of(context).size.width * 0.85, // Responsive width (85% of screen)
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.horizontal(left: Radius.circular(0)),
           ),
@@ -1140,517 +1221,359 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ─── HEADER ───────────────────────────────────────
+                // ─── 1. HEADER ───────────────────────────────────────
                 Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.1),
-                        blurRadius: 20,
-                        offset: const Offset(0, 4),
+                    border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Filters',
+                        style: GoogleFonts.poppins(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.grey.shade900,
+                        ),
+                      ),
+                      IconButton(
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                        icon: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.grey.shade50,
+                          ),
+                          child: Icon(Icons.close, size: 20, color: Colors.grey.shade700),
+                        ),
+                        onPressed: () => Navigator.pop(context),
                       ),
                     ],
                   ),
-                  child: Padding(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Filters',
-                          style: GoogleFonts.poppins(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.grey.shade800,
-                          ),
-                        ),
-                        IconButton(
-                          icon: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.grey.shade100,
-                            ),
-                            child: Icon(Icons.close_rounded,
-                                size: 22, color: Colors.grey.shade700),
-                          ),
-                          onPressed: () => Navigator.pop(context),
-                          splashRadius: 24,
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
 
-                // ─── SCROLLABLE CONTENT ───────────────────────────
+                // ─── 2. SCROLLABLE CONTENT ───────────────────────────
                 Expanded(
                   child: Scrollbar(
                     controller: _filterScrollController,
                     thumbVisibility: true,
-                    thickness: 4,
-                    radius: const Radius.circular(2),
                     child: ListView(
                       controller: _filterScrollController,
-                      primary: false,
-                      padding: const EdgeInsets.only(top: 8),
-                      physics: const ClampingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
                       children: [
-                        Container(
-                          margin: const EdgeInsets.symmetric(vertical: 0, horizontal: 0),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Column(
-                            children: [
-                              // ⭐️ REMOVED Favorites Only ListTile
-                              ListTile(
-                                leading: Icon(Icons.verified_user_outlined, color: _showCertifiedOnly ? const Color(0xFF25ADAD) : Colors.grey.shade700),
-                                title: Text(
-                                  'MFP Certified Only',
-                                  style: GoogleFonts.poppins(
-                                    fontWeight: FontWeight.w600,
-                                    color: _showCertifiedOnly ? const Color(0xFF25ADAD) : Colors.grey.shade800,
-                                  ),
-                                ),
-                                trailing: Switch(
-                                  value: _showCertifiedOnly,
-                                  onChanged: (val) => setState(() => _showCertifiedOnly = val),
-                                  activeColor: const Color(0xFF25ADAD),
-                                ),
-                              ),
-                            ],
+
+                        // ─── A. TOGGLES SECTION (Premium, Offers, Hidden) ───
+                        Text(
+                          'Preferences',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade500,
+                            letterSpacing: 0.5,
                           ),
                         ),
-                        // ─ Hidden Services Section ─
-                        Container(
-                          margin: const EdgeInsets.symmetric(vertical: 0),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 0),
-                            title: Text(
-                              'Hidden Services',
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade800,
-                              ),
+                        const SizedBox(height: 12),
+
+                        // MFP Premium
+                        _buildSwitchTile(
+                          title: 'MFP Premium Only',
+                          icon: Icons.verified_user_outlined,
+                          isActive: _showCertifiedOnly,
+                          onChanged: (val) => setState(() => _showCertifiedOnly = val),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // At Offer Price
+                        _buildSwitchTile(
+                          title: 'Special Offers',
+                          icon: Icons.local_offer_outlined,
+                          isActive: _showOffersOnly,
+                          onChanged: (val) {
+                            setState(() {
+                              _showOffersOnly = val;
+                              _startFiltering();
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Hidden Services Link
+                        InkWell(
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => HiddenServicesPage()));
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade200),
                             ),
-                            trailing: Icon(Icons.chevron_right,
-                                color: Colors.grey.shade800),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) => HiddenServicesPage()),
-                              );
-                            },
+                            child: Row(
+                              children: [
+                                Icon(Icons.visibility_off_outlined, size: 20, color: Colors.grey.shade600),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'Manage Hidden Services',
+                                    style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.grey.shade800,
+                                    ),
+                                  ),
+                                ),
+                                Icon(Icons.chevron_right, size: 20, color: Colors.grey.shade400),
+                              ],
+                            ),
                           ),
                         ),
 
-                        Container(
-                          margin: const EdgeInsets.symmetric(vertical: 0, horizontal: 0),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ExpansionTile(
-                            tilePadding: const EdgeInsets.symmetric(horizontal: 24),
-                            title: Text(
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Divider(height: 1),
+                        ),
+
+                        // ─── B. RUN TYPE (CHIPS) ──────────────────────────
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
                               'Run Type',
                               style: GoogleFonts.poppins(
                                 fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: _selectedRunTypes.isNotEmpty ? const Color(0xFF25ADAD) : Colors.grey.shade800,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.grey.shade900,
                               ),
                             ),
-                            trailing: _selectedRunTypes.isNotEmpty
-                                ? CircleAvatar(
-                              backgroundColor: const Color(0xFF25ADAD),
-                              radius: 12,
-                              child: Text(
-                                _selectedRunTypes.length.toString(),
-                                style: GoogleFonts.poppins(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+                            if (_selectedRunTypes.isNotEmpty)
+                              GestureDetector(
+                                onTap: () => setState(() => _selectedRunTypes.clear()),
+                                child: Text(
+                                  'Clear',
+                                  style: GoogleFonts.poppins(fontSize: 12, color: const Color(0xFF25ADAD), fontWeight: FontWeight.w600),
+                                ),
                               ),
-                            )
-                                : null,
-                            childrenPadding: const EdgeInsets.symmetric(horizontal: 8),
-                            children: [
-                              ...['Home Run', 'Business Run', 'NGO Run', 'Govt Run', 'Vet Run'].map((type) {
-                                return CheckboxListTile(
-                                  activeColor: const Color(0xFF25ADAD),
-                                  title: Text(type, style: GoogleFonts.poppins()),
-                                  value: _selectedRunTypes.contains(type),
-                                  onChanged: (selected) {
-                                    setState(() {
-                                      if (selected == true) {
-                                        _selectedRunTypes.add(type);
-                                      } else {
-                                        _selectedRunTypes.remove(type);
-                                      }
-                                    });
-                                  },
-                                );
-                              }),
-                            ],
-                          ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: ['Home Run', 'Business Run', 'NGO Run', 'Govt Run', 'Vet Run'].map((type) {
+                            final isSelected = _selectedRunTypes.contains(type);
+                            return FilterChip(
+                              label: Text(type),
+                              labelStyle: GoogleFonts.poppins(
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                color: isSelected ? Colors.white : Colors.grey.shade700,
+                              ),
+                              selected: isSelected,
+                              showCheckmark: false,
+                              backgroundColor: Colors.white,
+                              selectedColor: const Color(0xFF25ADAD),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                side: BorderSide(
+                                  color: isSelected ? const Color(0xFF25ADAD) : Colors.grey.shade300,
+                                ),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                              onSelected: (bool selected) {
+                                setState(() {
+                                  if (selected) {
+                                    _selectedRunTypes.add(type);
+                                  } else {
+                                    _selectedRunTypes.remove(type);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
                         ),
 
-                        // ─ Price Section (with dynamic RangeSlider) ─
-                        Container(
-                          margin: const EdgeInsets.symmetric(vertical: 0),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ExpansionTile(
-                            tilePadding:
-                            const EdgeInsets.symmetric(horizontal: 24),
-                            // Show a badge/icon on the right if price range has been modified
-                            title: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Price',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: (_selectedPriceRange.start.toInt() !=
-                                        _minPrice.toInt() ||
-                                        _selectedPriceRange.end.toInt() !=
-                                            _maxPrice.toInt())
-                                        ? const Color(
-                                        0xFF25ADAD) // highlight if active
-                                        : Colors.grey.shade800,
-                                  ),
-                                ),
-                                if (_selectedPriceRange.start.toInt() !=
-                                    _minPrice.toInt() ||
-                                    _selectedPriceRange.end.toInt() !=
-                                        _maxPrice.toInt())
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF25ADAD),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      '${_selectedPriceRange.start.toInt()} - ${_selectedPriceRange.end.toInt()}',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 12,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            childrenPadding:
-                            const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                            iconColor: const Color(0xFF25ADAD),
-                            children: [
-                              // Show loader while Firestore fetch is in progress:
-                              if (!_priceFilterLoaded)
-                                Padding(
-                                  padding:
-                                  const EdgeInsets.symmetric(vertical: 16.0),
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                )
-                              else ...[
-                                // Show RangeSlider once min/max are loaded
-                                Text(
-                                  'Select price range:',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 14,
-                                    color: Colors.grey.shade800,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                // Display current numeric labels above slider
-                                Row(
-                                  mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      '₹${_minPrice.toInt()}',
-                                      style: GoogleFonts.poppins(
-                                          fontSize: 13,
-                                          color: Colors.grey.shade700),
-                                    ),
-                                    Text(
-                                      '₹${_maxPrice.toInt()}',
-                                      style: GoogleFonts.poppins(
-                                          fontSize: 13,
-                                          color: Colors.grey.shade700),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                RangeSlider(
-                                  values: _selectedPriceRange,
-                                  min: _minPrice.toDouble(),
-                                  max: _maxPrice.toDouble(),
-                                  divisions:
-                                  ((_maxPrice - _minPrice) ~/ 100).toInt(),
-                                  // Each tick represents ₹100
-                                  labels: RangeLabels(
-                                    '₹${_selectedPriceRange.start.toInt()}',
-                                    '₹${_selectedPriceRange.end.toInt()}',
-                                  ),
-                                  activeColor: const Color(0xFF25ADAD),
-                                  inactiveColor: Colors.grey.shade300,
-                                  onChanged: (newRange) {
-                                    setState(() {
-                                      _selectedPriceRange = RangeValues(
-                                        newRange.start.clamp(_minPrice.toDouble(),
-                                            _maxPrice.toDouble()),
-                                        newRange.end.clamp(_minPrice.toDouble(),
-                                            _maxPrice.toDouble()),
-                                      );
-                                    });
-                                  },
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    // “Clear” button resets to full-range
-                                    OutlinedButton(
-                                      style: OutlinedButton.styleFrom(
-                                        side: BorderSide(
-                                            color: const Color(0xFF25ADAD)
-                                                .withOpacity(0.5)),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 8, horizontal: 16),
-                                      ),
-                                      onPressed: () {
-                                        setState(() {
-                                          _selectedPriceRange = RangeValues(
-                                            _minPrice.toDouble(),
-                                            _maxPrice.toDouble(),
-                                          );
-                                        });
-                                      },
-                                      child: Text(
-                                        'Clear',
-                                        style: GoogleFonts.poppins(
-                                            color: const Color(0xFF25ADAD)),
-                                      ),
-                                    ),
-                                    // “Apply” closes drawer and keeps the selected range
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF25ADAD),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 8, horizontal: 16),
-                                      ),
-                                      onPressed: () {
-                                        // _selectedPriceRange already holds the chosen min/max.
-                                        Navigator.pop(
-                                            context); // close the drawer
-                                      },
-                                      child: Text(
-                                        'Apply',
-                                        style: GoogleFonts.poppins(
-                                            color: Colors.white),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Divider(height: 1),
                         ),
 
-                        // ─ Species Section ─
-                        Container(
-                          margin: const EdgeInsets.symmetric(vertical: 0),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ExpansionTile(
-                            tilePadding:
-                            const EdgeInsets.symmetric(horizontal: 24),
-                            // Show a badge/icon on the right if any species are selected
-                            title: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Species',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: _selectedPetTypes.isNotEmpty
-                                        ? const Color(
-                                        0xFF25ADAD) // highlight if active
-                                        : Colors.grey.shade800,
-                                  ),
-                                ),
-                                if (_selectedPetTypes.isNotEmpty)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF25ADAD),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      '${_selectedPetTypes.length}',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 12,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            childrenPadding: const EdgeInsets.only(
-                                left: 24, right: 24, bottom: 8),
-                            iconColor: const Color(0xFF25ADAD),
+                        // ─── C. PRICE RANGE ──────────────────────────────
+                        // Only show if loaded
+                        if (!_priceFilterLoaded)
+                          const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF25ADAD)))
+                        else ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              // ─── Search Field ───────────────────────────────
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 8),
-                                child: TextField(
-                                  onChanged: (v) =>
-                                      setState(() => _speciesSearchQuery = v),
-                                  decoration: InputDecoration(
-                                    hintText: 'Search species',
-                                    prefixIcon: Icon(Icons.search,
-                                        color: const Color(0xFF25ADAD)),
-                                    filled: true,
-                                    fillColor: Colors.white,
-                                    isDense: true,
-                                    contentPadding:
-                                    const EdgeInsets.symmetric(vertical: 8),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                      borderSide: BorderSide.none,
-                                    ),
-                                  ),
-                                  style: GoogleFonts.poppins(fontSize: 14),
+                              Text(
+                                'Price Range',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey.shade900,
                                 ),
                               ),
+                              // Live Update of Values here
+                              Text(
+                                '₹${_selectedPriceRange.start.toInt()} - ₹${_selectedPriceRange.end.toInt()}',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF25ADAD),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              activeTrackColor: const Color(0xFF25ADAD),
+                              inactiveTrackColor: Colors.grey.shade200,
+                              thumbColor: Colors.white,
+                              overlayColor: const Color(0xFF25ADAD).withOpacity(0.1),
+                              valueIndicatorColor: const Color(0xFF25ADAD),
+                              trackHeight: 4,
+                              rangeThumbShape: const RoundRangeSliderThumbShape(enabledThumbRadius: 10, elevation: 2),
+                            ),
+                            child: RangeSlider(
+                              values: _selectedPriceRange,
+                              min: _minPrice.toDouble(),
+                              max: _maxPrice.toDouble(),
+                              divisions: ((_maxPrice - _minPrice) ~/ 100).toInt(),
+                              labels: RangeLabels(
+                                '₹${_selectedPriceRange.start.toInt()}',
+                                '₹${_selectedPriceRange.end.toInt()}',
+                              ),
+                              onChanged: (newRange) {
+                                setState(() {
+                                  // Clamp to ensure we don't go out of bounds
+                                  _selectedPriceRange = RangeValues(
+                                    newRange.start.clamp(_minPrice.toDouble(), _maxPrice.toDouble()),
+                                    newRange.end.clamp(_minPrice.toDouble(), _maxPrice.toDouble()),
+                                  );
+                                });
+                              },
+                            ),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('₹${_minPrice.toInt()}', style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey.shade500)),
+                              Text('₹${_maxPrice.toInt()}+', style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey.shade500)),
+                            ],
+                          ),
+                        ],
 
-                              // ─── Filtered List ───────────────────────────────
-                              ...filteredPetTypes.map((pt) {
-                                final name = _capitalize(pt.id);
-                                final available = pt.display;
-                                final sel = _selectedPetTypes.contains(name);
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Divider(height: 1),
+                        ),
 
-                                if (!available) {
-                                  return Padding(
-                                    padding:
-                                    const EdgeInsets.symmetric(vertical: 6.0),
+                        // ─── D. SPECIES SELECTOR ──────────────────────────
+                        Text(
+                          'Species',
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Search Box
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: TextField(
+                            onChanged: (v) => setState(() => _speciesSearchQuery = v),
+                            decoration: InputDecoration(
+                              hintText: 'Search species (e.g. Dog, Cat)',
+                              hintStyle: GoogleFonts.poppins(color: Colors.grey.shade400, fontSize: 13),
+                              prefixIcon: Icon(Icons.search, color: Colors.grey.shade400, size: 20),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                              isDense: true,
+                            ),
+                            style: GoogleFonts.poppins(fontSize: 14),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Species List (Limited Height)
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 250),
+                          child: ListView(
+                            shrinkWrap: true,
+                            physics: const ClampingScrollPhysics(),
+                            children: filteredPetTypes.map((pt) {
+                              final name = _capitalize(pt.id);
+                              final available = pt.display;
+                              final sel = _selectedPetTypes.contains(name);
+
+                              // Disabled State
+                              if (!available) {
+                                return Opacity(
+                                  opacity: 0.5,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8.0),
                                     child: Row(
                                       children: [
-                                        Expanded(
-                                          child: Text(
-                                            name,
-                                            style: GoogleFonts.poppins(
-                                                fontSize: 15,
-                                                color: Colors.grey.shade500),
+                                        Icon(Icons.check_box_outline_blank, color: Colors.grey.shade300),
+                                        const SizedBox(width: 12),
+                                        Text(name, style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade800)),
+                                        const Spacer(),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                              color: Colors.grey.shade200,
+                                              borderRadius: BorderRadius.circular(4)
                                           ),
-                                        ),
-                                        Chip(
-                                          label: Text(
-                                            'Coming Soon',
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w600,
-                                              color: AppColors.black, // Teal text
-                                            ),
-                                          ),
-                                          backgroundColor: Colors.white, // White background
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(8),
-                                            side: BorderSide(
-                                              color: AppColors.primaryColor, // Teal border
-                                            ),
-                                          ),
-                                        ),
+                                          child: Text('Coming Soon', style: GoogleFonts.poppins(fontSize: 9, fontWeight: FontWeight.w600)),
+                                        )
                                       ],
                                     ),
-                                  );
-                                }
-
-                                return CheckboxListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(
-                                    name,
-                                    style: GoogleFonts.poppins(
-                                        fontSize: 15,
-                                        color: Colors.grey.shade800),
                                   ),
-                                  value: sel,
-                                  activeColor: const Color(0xFF25ADAD),
-                                  checkColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(6)),
-                                  side: BorderSide(
-                                      color: const Color(0xFF25ADAD)
-                                          .withOpacity(0.5)),
-                                  onChanged: (_) {
-                                    setState(() {
-                                      if (sel)
-                                        _selectedPetTypes.remove(name);
-                                      else
-                                        _selectedPetTypes.add(name);
-                                    });
-                                  },
                                 );
-                              }).toList(),
-                            ],
-                          ),
-                        ),
-                        // ─ New: At Offer Price Section ─
-                        Container(
-                          margin: const EdgeInsets.symmetric(vertical: 0),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-                            title: Text(
-                              'At Offer Price',
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: _showOffersOnly ? const Color(0xFF25ADAD) : Colors.grey.shade800,
-                              ),
-                            ),
-                            trailing: Icon(
-                              _showOffersOnly ? Icons.check_box : Icons.check_box_outline_blank,
-                              color: _showOffersOnly ? const Color(0xFF25ADAD) : Colors.grey.shade600,
-                            ),
-                            onTap: () {
-                              setState(() {
-                                _showOffersOnly = !_showOffersOnly;
-                                _startFiltering(); // 🚨 Call filtering when offer filter changes
-                              });
-                            },
+                              }
+
+                              // Active State
+                              return InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    if (sel) _selectedPetTypes.remove(name);
+                                    else _selectedPetTypes.add(name);
+                                  });
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        sel ? Icons.check_box : Icons.check_box_outline_blank,
+                                        color: sel ? const Color(0xFF25ADAD) : Colors.grey.shade400,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        name,
+                                        style: GoogleFonts.poppins(
+                                            fontSize: 14,
+                                            fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
+                                            color: sel ? const Color(0xFF25ADAD) : Colors.grey.shade800
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
                           ),
                         ),
                       ],
@@ -1658,63 +1581,60 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
                   ),
                 ),
 
-                // ─── FOOTER BUTTONS ───────────────────────────────
+                // ─── 3. FOOTER BUTTONS ──────────────────────────────
                 Container(
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    border: Border(
-                      top: BorderSide(color: Colors.grey.shade200, width: 1.5),
-                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, -5),
+                      ),
+                    ],
                   ),
                   child: Row(
                     children: [
-                      // ─── Clear All ─────────────────────────────────────────
                       Expanded(
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            side: BorderSide(
-                                color: Colors.grey.shade400, width: 1.2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
+                        child: TextButton(
                           onPressed: () {
-                            _resetFilters(); // _resetFilters calls _startFiltering
+                            _resetFilters();
                             Navigator.pop(context);
                           },
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(color: Colors.grey.shade300),
+                            ),
+                          ),
                           child: Text(
                             'Clear All',
                             style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                               color: Colors.grey.shade700,
                             ),
                           ),
                         ),
                       ),
-
                       const SizedBox(width: 16),
-
-                      // ─── Apply ────────────────────────────────────────────────
                       Expanded(
                         child: ElevatedButton(
+                          onPressed: () {
+                            _startFiltering();
+                            Navigator.pop(context);
+                          },
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: const Color(0xFF25ADAD),
+                            elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            elevation: 0,
-                            shadowColor: Colors.transparent,
                           ),
-                          onPressed: () {
-                            // Close drawer and rely on didChangeDependencies or other triggers
-                            _startFiltering(); // 🚨 Call filtering explicitly on apply
-                            Navigator.pop(context);
-                          },
                           child: Text(
-                            'Apply',
+                            'Apply Filters',
                             style: GoogleFonts.poppins(
                               fontWeight: FontWeight.w600,
                               color: Colors.white,
@@ -1723,6 +1643,36 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
                         ),
                       ),
                     ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 20.0,
+                    right: 20.0,
+                    bottom: 16,
+                    top: 0,
+                  ),
+                  child: Center(
+                    child: RichText(
+                      textAlign: TextAlign.center,
+                      text: TextSpan(
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                        children: [
+                          const TextSpan(text: "Tap "),
+                          TextSpan(
+                            text: "Apply",
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w700, // bold
+                              color: Colors.grey.shade800, // slightly stronger
+                            ),
+                          ),
+                          const TextSpan(text: " to confirm your filter changes."),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -1861,7 +1811,6 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
                   // 1. --- SHOW LOADING STATE ---
                   // If the provider isn't ready OR the isolate is busy, show spinner.
                   if (!cardsProv.ready || _isFiltering) {
-                    print('DEBUG: Showing loading state. Ready: ${cardsProv.ready}, Filtering: $_isFiltering');
                     return const Center(child: CircularProgressIndicator(color: AppColors.primary,));
                   }
 
@@ -1889,15 +1838,70 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
 
                   // 3. --- SHOW EMPTY STATE ---
                   if (displayList.isEmpty) {
-                    print('DEBUG: Showing empty state. Total services checked: ${cardsProv.cards.length}');
-                    return const Center(child: Padding(
-                      padding: EdgeInsets.all(32.0),
-                      child: Text("No services match your current filters. Try clearing some filters."),
-                    ));
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.search_off_rounded,
+                              size: 64,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(height: 16),
+
+                            Text(
+                              "No Services Found",
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.poppins(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+
+                            Text(
+                              "No services match your current filters.\nTry adjusting or clearing some filters.",
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                height: 1.6,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            ElevatedButton(
+                              onPressed: () {
+                                _resetFilters();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primaryColor,
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: Text(
+                                "Clear Filters",
+                                style: GoogleFonts.poppins(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
                   }
 
+
                   // 4. --- SHOW FILTERED RESULTS ---
-                  print('DEBUG: Displaying ${displayList.length} filtered services.');
                   return ListView(
                     padding: const EdgeInsets.all(8),
                     children: displayList.map((data) => BoardingServiceCard(
@@ -1913,22 +1917,51 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
         ),
       ),);
   }
-
-  // Add this new method anywhere inside the _BoardingHomepageState class
-
-  void _showInfoDialog(BuildContext context, {required String title, required String content}) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: Text(title, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-        content: Text(content, style: GoogleFonts.poppins()),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text('OK', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.black87)),
+  Widget _buildSwitchTile({
+    required String title,
+    required IconData icon,
+    required bool isActive,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return InkWell(
+      onTap: () => onChanged(!isActive),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isActive ? const Color(0xFF25ADAD).withOpacity(0.05) : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isActive ? const Color(0xFF25ADAD).withOpacity(0.3) : Colors.grey.shade200,
           ),
-        ],
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isActive ? const Color(0xFF25ADAD) : Colors.grey.shade600,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w500,
+                  color: isActive ? const Color(0xFF25ADAD) : Colors.grey.shade800,
+                ),
+              ),
+            ),
+            Transform.scale(
+              scale: 0.8,
+              child: Switch(
+                value: isActive,
+                onChanged: onChanged,
+                activeColor: const Color(0xFF25ADAD),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2032,16 +2065,13 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
     );
   }
 
-  Map<String, Map<DateTime, int>> _allBookingCounts = {};
-
-
-  // lib/screens/Boarding/boarding_homepage.dart
+  Map<String, Map<String, int>> _allBookingCounts = {};
 
   Future<void> _preloadAllBookingCounts() async {
-    // Wait for the provider to be ready before trying to access cards
     final provider = context.read<BoardingCardsProvider>();
+
+    // 1. Wait for provider to be ready
     if (!provider.ready) {
-      // If not ready, wait a moment and try again.
       await Future.delayed(const Duration(milliseconds: 100));
       _preloadAllBookingCounts();
       return;
@@ -2050,250 +2080,356 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
     final services = provider.cards;
     if (services.isEmpty) return;
 
-    print("🕵️‍♂️ Preloading availability data for ${services.length} services...");
+    int chunkSize = 20;
 
-    // Loop through each service card to fetch its specific availability data
-    for (final service in services) {
-      final sid = service['service_id'] as String;
-      final dateCount = <DateTime, int>{};
+    // 3. Loop through the services in "chunks"
+    for (var i = 0; i < services.length; i += chunkSize) {
 
-      // 1. Fetch the main document to get max_pets_allowed
-      final parentSnap = await FirebaseFirestore.instance
-          .collection('users-sp-boarding')
-          .doc(sid)
-          .get();
+      // Calculate the slice (e.g., 0 to 20, then 20 to 40)
+      int end = (i + chunkSize < services.length) ? i + chunkSize : services.length;
+      List<Map<String, dynamic>> currentBatch = services.sublist(i, end);
 
-      if (parentSnap.exists && parentSnap.data() != null) {
-        final rawMax = parentSnap.data()!['max_pets_allowed'];
-        _serviceMaxAllowed[sid] = int.tryParse(rawMax?.toString() ?? '0') ?? 0;
-      } else {
-        _serviceMaxAllowed[sid] = 0;
-      }
+      // 4. Fire requests for this batch in PARALLEL
+      // Future.wait makes the app wait for all 20 to finish before moving to the next 20.
+      await Future.wait(currentBatch.map((service) async {
+        final sid = service['service_id'] as String;
+        final dateCount = <String, int>{};
 
-      // 2. Fetch the daily_summary to get booked counts and holidays
-      final summarySnap = await FirebaseFirestore.instance
-          .collection('users-sp-boarding')
-          .doc(sid)
-          .collection('daily_summary')
-          .get();
-
-      for (final doc in summarySnap.docs) {
         try {
-          final date = DateFormat('yyyy-MM-dd').parse(doc.id);
-          final dayOnly = DateTime(date.year, date.month, date.day);
-          final docData = doc.data();
+          // 🔥 SUPER OPTIMIZATION:
+          // Fetch the Parent Doc (Max Pets) AND the Summary Collection (Dates) at the same time
+          final results = await Future.wait([
+            FirebaseFirestore.instance.collection('users-sp-boarding').doc(sid).get(),
+            FirebaseFirestore.instance.collection('users-sp-boarding').doc(sid).collection('daily_summary').get(),
+          ]);
 
-          final bool isHoliday = docData['isHoliday'] as bool? ?? false;
+          final parentSnap = results[0] as DocumentSnapshot;
+          final summarySnap = results[1] as QuerySnapshot;
 
-          if (isHoliday) {
-            // If it's a holiday, use our 999 signal
-            dateCount[dayOnly] = 999;
+          // A. Parse Max Allowed
+          if (parentSnap.exists && parentSnap.data() != null) {
+            final rawMax = (parentSnap.data() as Map<String, dynamic>)['max_pets_allowed'];
+            _serviceMaxAllowed[sid] = int.tryParse(rawMax?.toString() ?? '0') ?? 0;
           } else {
-            // Otherwise, use the actual booked count
-            dateCount[dayOnly] = docData['bookedPets'] as int? ?? 0;
+            _serviceMaxAllowed[sid] = 0;
           }
+
+          // B. Parse Daily Summary (With Date & Holiday Fixes)
+          for (final doc in summarySnap.docs) {
+            final docData = doc.data() as Map<String, dynamic>;
+
+            // Fix 1: Normalize Date Key ("2025-1-1" -> "2025-01-01")
+            String dateKey = doc.id;
+            try {
+              final parsedDate = DateFormat('yyyy-MM-dd').parse(doc.id);
+              dateKey = DateFormat('yyyy-MM-dd').format(parsedDate);
+            } catch (e) {
+              continue; // Skip invalid dates
+            }
+
+            // Fix 2: Robust Holiday Check
+            bool isHoliday = false;
+            final rawHoliday = docData['isHoliday'];
+            if (rawHoliday is bool) isHoliday = rawHoliday;
+            else if (rawHoliday is String) isHoliday = rawHoliday.toLowerCase() == 'true';
+
+            if (isHoliday) {
+              dateCount[dateKey] = 999; // Holiday blocked
+            } else {
+              dateCount[dateKey] = int.tryParse(docData['bookedPets']?.toString() ?? '0') ?? 0;
+            }
+          }
+
+          // Save result to the main map
+          _allBookingCounts[sid] = dateCount;
+
         } catch (e) {
-          // Ignore malformed doc IDs
         }
-      }
-      _allBookingCounts[sid] = dateCount;
+      }));
     }
 
-    // Once all data is fetched, trigger a UI update.
-    setState(() {
-      print("✅ Preloading complete. Data is ready for filtering.");
-    });
+    // 5. Update UI once ALL batches are done
+    if (mounted) {
+      setState(() {}); // Refresh UI
+      // If the user already had filters set, re-run the filter logic now that data is loaded
+      if (_filterPetCount > 0 && _filterDates.isNotEmpty) {
+        _startFiltering();
+      }
+    }
   }
-
-  // [REPLACE] your existing _showAvailabilityFilterDialog method with this one.
 
   Future<void> _showAvailabilityFilterDialog() async {
     final petCountCtl = TextEditingController(
       text: _filterPetCount > 0 ? '$_filterPetCount' : '',
     );
-    List<DateTime> tempDates = List.from(_filterDates);
 
-    // NEW: Create a FocusNode to control the keyboard
-    final petCountFocusNode = FocusNode();
+    List<DateTime> tempDates = List.from(_filterDates);
+    int tempPetCount = _filterPetCount;
+    DateTime tempFocusedDay = DateTime.now();
 
     await showDialog(
       context: context,
-      // Ensure the dialog itself doesn't dismiss when tapping outside the textfield
-      barrierDismissible: false,
       builder: (ctx) {
-        // Use a StatefulBuilder to manage the internal state of the calendar
         return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
+          builder: (context, setDialogState) {
             return Dialog(
-              shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              child: Padding(
-                padding: EdgeInsets.only(bottom: MediaQuery.of(dialogContext).viewInsets.bottom),
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Header
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Availability Filter',
-                              style: GoogleFonts.poppins(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w600,
-                                color: const Color(0xFF25ADAD),
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14), // smaller radius
+              ),
+              insetPadding: const EdgeInsets.all(20),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 12), // smaller padding
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // --- HEADER ---
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Check Availability',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 17, // reduced
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              Text(
+                                'Filter services by capacity',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11, // reduced
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.grey.shade100,
+                              ),
+                              child: const Icon(Icons.close, size: 18), // smaller
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 16), // reduced spacing
+
+                      // --- SECTION 1: PET COUNT ---
+                      Text(
+                        'How many pets?',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12.5, // reduced
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14), // slightly smaller
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: TextField(
+                          controller: petCountCtl,
+                          keyboardType: TextInputType.number,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14.5, // smaller
+                            fontWeight: FontWeight.w600,
+                          ),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            hintText: 'e.g., 1',
+                            hintStyle: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: Colors.grey.shade400,
+                            ),
+                            icon: const Icon(Icons.pets,
+                                color: Color(0xFF25ADAD), size: 18),
+                          ),
+                          onChanged: (val) {
+                            tempPetCount = int.tryParse(val) ?? 0;
+                          },
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // --- SECTION 2: CALENDAR ---
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Select Dates',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12.5, // reduced
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                          if (tempDates.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF25ADAD).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${tempDates.length} Selected',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF25ADAD),
+                                ),
                               ),
                             ),
-                            IconButton(
-                              icon: Icon(Icons.close, color: Colors.grey[600]),
-                              // MODIFIED: Close button now unfocuses before popping
-                              onPressed: () {
-                                petCountFocusNode.unfocus();
-                                Navigator.pop(dialogContext);
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        // "Number of Pets" Field
-                        Text(
-                          'Number of pets',
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
+                        ],
+                      ),
 
-                        // --- MODIFIED TEXTFIELD ---
-                        TextField(
-                          controller: petCountCtl,
-                          focusNode: petCountFocusNode, // MODIFIED: Assign the FocusNode
-                          keyboardType: TextInputType.number,
-                          // MODIFIED: Change keyboard action to "Done"
-                          textInputAction: TextInputAction.done,
-                          // MODIFIED: Hide keyboard when "Done" is pressed
-                          onEditingComplete: () => petCountFocusNode.unfocus(),
-                          decoration: InputDecoration(
-                            hintText: 'Enter the number',
-                            border: const OutlineInputBorder(
-                              borderRadius: BorderRadius.zero,
-                              borderSide: BorderSide(color: Color(0xFF25ADAD)),
-                            ),
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            // NEW: The "tick button" (checkmark icon)
-                            suffixIcon: IconButton(
-                              icon: const Icon(Icons.check, color: Color(0xFF25ADAD)),
-                              onPressed: () {
-                                // This is the key part: it dismisses the keyboard
-                                petCountFocusNode.unfocus();
-                              },
-                            ),
-                          ),
+                      const SizedBox(height: 8),
+
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade200),
+                          borderRadius: BorderRadius.circular(14), // smaller
                         ),
-                        const SizedBox(height: 16),
-                        // "Select Dates" Label
-                        Text(
-                          'Select dates',
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        // Calendar
-                        TableCalendar(
+                        child: TableCalendar(
                           firstDay: DateTime.now(),
-                          lastDay: DateTime.now().add(const Duration(days: 365)),
-                          focusedDay: DateTime.now(),
-                          selectedDayPredicate: (day) => tempDates.any((d) => isSameDay(d, day)),
-                          onDaySelected: (sel, focus) {
-                            // This now uses the StatefulBuilder's setState equivalent
-                            setDialogState(() {
-                              if (tempDates.any((d) => isSameDay(d, sel))) {
-                                tempDates.removeWhere((d) => isSameDay(d, sel));
-                              } else {
-                                tempDates.add(sel);
-                              }
-                            });
-                          },
-                          calendarStyle: CalendarStyle(
-                            selectedDecoration: const BoxDecoration(
-                              color: Color(0xFF25ADAD),
-                              shape: BoxShape.rectangle,
-                            ),
-                            todayDecoration: BoxDecoration(
-                              border: Border.all(color: Color(0xFF25ADAD)),
-                              shape: BoxShape.rectangle,
-                            ),
-                            todayTextStyle: const TextStyle(color: Colors.black),
-                          ),
+                          lastDay: DateTime.now().add(const Duration(days: 90)),
+                          focusedDay: tempFocusedDay,
                           headerStyle: const HeaderStyle(
                             formatButtonVisible: false,
                             titleCentered: true,
+                            leftChevronIcon: Icon(Icons.chevron_left, size: 18),
+                            rightChevronIcon: Icon(Icons.chevron_right, size: 18),
                           ),
-                        ),
+                          calendarStyle: const CalendarStyle(
+                            todayDecoration: BoxDecoration(
+                              color: Color(0xFFB2DFDB),
+                              shape: BoxShape.circle,
+                            ),
+                            selectedDecoration: BoxDecoration(
+                              color: Color(0xFF25ADAD),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          selectedDayPredicate: (day) {
+                            return tempDates.any((d) => isSameDay(d, day));
+                          },
+                          onDaySelected: (selectedDay, focusedDay) {
+                            setDialogState(() {
+                              tempFocusedDay = focusedDay;   // <-- KEEP MONTH
 
-                        const SizedBox(height: 16),
-                        // Clear / Apply Buttons
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  side: BorderSide(color: const Color(0xFF25ADAD).withOpacity(0.5)),
-                                  shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _filterPetCount = 0;
-                                    _filterDates.clear();
-                                  });
-                                  setDialogState(() {
-                                    petCountCtl.text = '';
-                                    tempDates.clear();
-                                  });
-                                },
-                                child: Text('Clear', style: GoogleFonts.poppins(color: const Color(0xFF25ADAD))),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF25ADAD),
-                                  shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                ),
-                                onPressed: () {
-                                  final enteredCount = int.tryParse(petCountCtl.text) ?? 0;
-                                  if (enteredCount <= 0) {
-                                    _showWarningDialog(message: 'Please enter a valid pet count.');
-                                    return;
-                                  }
-                                  if (tempDates.isEmpty) {
-                                    _showWarningDialog(message: 'Please select at least one date.');
-                                    return;
-                                  }
-                                  setState(() {
-                                    _filterPetCount = enteredCount;
-                                    _filterDates = List.from(tempDates);
-                                  });
-                                  Navigator.pop(dialogContext);
-                                },
-                                child: Text('Apply', style: GoogleFonts.poppins(color: Colors.white)),
-                              ),
-                            ),
-                          ],
+                              if (tempDates.any((d) => isSameDay(d, selectedDay))) {
+                                tempDates.removeWhere((d) => isSameDay(d, selectedDay));
+                              } else {
+                                tempDates.add(selectedDay);
+                              }
+                            });
+                          },
+                          onPageChanged: (newFocusedDay) {
+                            setDialogState(() {
+                              tempFocusedDay = newFocusedDay;
+                            });
+                          },
+
+
                         ),
-                      ],
-                    ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // --- SECTION 3: BUTTONS ---
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _filterPetCount = 0;
+                                  _filterDates.clear();
+                                });
+                                _startFiltering();
+                                Navigator.pop(context);
+                              },
+                              style: TextButton.styleFrom(
+                                padding:
+                                const EdgeInsets.symmetric(vertical: 12), // smaller
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              child: Text(
+                                'Reset',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 2,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                if (tempPetCount <= 0) {
+                                  _showWarningDialog(
+                                      message: "Please enter at least 1 pet.");
+                                  return;
+                                }
+                                if (tempDates.isEmpty) {
+                                  _showWarningDialog(
+                                      message:
+                                      "Please select at least one date.");
+                                  return;
+                                }
+
+                                setState(() {
+                                  _filterPetCount = tempPetCount;
+                                  _filterDates = List.from(tempDates);
+                                });
+
+                                _startFiltering();
+                                Navigator.pop(context);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF25ADAD),
+                                padding:
+                                const EdgeInsets.symmetric(vertical: 12), // smaller
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              child: Text(
+                                'Apply Filter',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -2302,15 +2438,8 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
         );
       },
     );
-    // After dialog closes and setState runs:
-    if (_filterPetCount > 0 || _filterDates.isNotEmpty) {
-      // We only need to check if the filter was used at all
-      _startFiltering(); // 🚨 Re-filter after applying availability dates
-    }
-
-    // NEW: Important cleanup to prevent memory leaks
-    petCountFocusNode.dispose();
   }
+
 }
 
 // boarding_homepage.dart (add this to the bottom of the file)
@@ -2320,60 +2449,6 @@ class IsolateData {
   final List<Map<String, dynamic>> services;
   IsolateData(this.services);
 }
-
-// The top-level function to run in the isolate. It MUST be static or top-level.
-// lib/screens/Boarding/boarding_homepage.dart
-
-// The top-level function to run in the isolate.
-// lib/screens/Boarding/boarding_homepage.dart
-
-// Replace your _computeBookingCounts function with this one
-
-Future<Map<String, Map<DateTime, int>>> _computeBookingCounts(IsolateData data) async {
-  final allBookingCounts = <String, Map<DateTime, int>>{};
-
-  for (final service in data.services) {
-    final sid = service['service_id'] as String;
-    final dateCount = <DateTime, int>{};
-
-    final summarySnap = await FirebaseFirestore.instance
-        .collection('users-sp-boarding')
-        .doc(sid)
-        .collection('daily_summary')
-        .get();
-
-    // === START DEBUG PRINT #1 ===
-    print("--- [ISOLATE TRACE for ${service['shopName']}] Found ${summarySnap.docs.length} summary docs.");
-    // === END DEBUG PRINT #1 ===
-
-    for (final doc in summarySnap.docs) {
-      try {
-        final date = DateFormat('yyyy-MM-dd').parse(doc.id);
-        final dayOnly = DateTime(date.year, date.month, date.day);
-        final docData = doc.data();
-
-        final bool isHoliday = docData['isHoliday'] as bool? ?? false;
-
-        if (isHoliday) {
-          // === START DEBUG PRINT #1 ===
-          print("--- [ISOLATE TRACE for ${service['shopName']}] 👉 HOLIDAY FOUND for ${doc.id}. Setting slots to 999.");
-          // === END DEBUG PRINT #1 ===
-          dateCount[dayOnly] = 999;
-        } else {
-          final bookedPets = docData['bookedPets'] as int? ?? 0;
-          dateCount[dayOnly] = bookedPets;
-        }
-
-      } catch (e) {
-        print('Could not parse date from summary document ID: ${doc.id}');
-      }
-    }
-
-    allBookingCounts[sid] = dateCount;
-  }
-  return allBookingCounts;
-}
-
 
 
 class RunTypeFilterDialog extends StatefulWidget {
@@ -2586,12 +2661,10 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
   bool _needsWarning(BuildContext context) {
     // 1. Check if the user's pets are loaded.
     final userPets = context.read<PetProvider>().pets;
-    print('DEBUG T1: Total User Pets Loaded: ${userPets.length}');
 
     // 2. Check what the service provider accepts.
     final acceptedTypes = (widget.service['pets'] as List<dynamic>? ?? [])
         .map((p) => p.toString().toLowerCase()).toSet();
-    print('DEBUG T1: Service ID: ${widget.service['service_id']} accepts: ${acceptedTypes.join(', ')}');
 
     if (userPets.isEmpty) return false;
 
@@ -2601,13 +2674,10 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
       final isRejected = !acceptedTypes.contains(petType);
 
       if (isRejected) {
-        print('DEBUG T1: ❌ REJECTED PET FOUND: ${pet['name']} (Type: $petType)');
       }
       return isRejected;
     }).length;
 
-    // 4. Final outcome.
-    print('DEBUG T1: Final Warning Status: ${unacceptedCount > 0}');
     return unacceptedCount > 0;
   }
 
@@ -2727,7 +2797,8 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
       children: [
         Card(
           color: Colors.white,
-
+          elevation: 0,
+          shadowColor: Colors.transparent,
           margin: const EdgeInsets.fromLTRB(2, 0, 2, 12),
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
@@ -2772,58 +2843,57 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
                     children: [
                       Stack(
                         children: [
-                          Material(
-                            elevation: 3,
-                            borderRadius: BorderRadius.circular(12),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                width: 110,
-                                height: 140,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  border: Border.all(color: Colors.grey.shade200),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Image.network(
-                                  shopImage,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, __, ___) => const Center(
-                                    child: Icon(Icons.image_not_supported,
-                                        color: Colors.grey),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-
-                          // bottom gradient (runType)
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              height: 22,
-                              decoration: BoxDecoration(
-                                gradient: _runTypeGradient(runType),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Material(
+                                elevation: 3,
                                 borderRadius: const BorderRadius.only(
-                                  bottomLeft: Radius.circular(12),
-                                  bottomRight: Radius.circular(12),
+                                  topLeft: Radius.circular(12),
+                                  topRight: Radius.circular(12),
+                                  bottomLeft: Radius.circular(0),
+                                  bottomRight: Radius.circular(0),
                                 ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  _runTypeLabel(runType),
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: SizedBox(
+                                    width: 110,
+                                    height: 120,
+                                    child: Image.network(
+                                      shopImage,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (_, __, ___) => const Center(
+                                        child: Icon(Icons.image_not_supported, color: Colors.grey),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
 
+                              // BELOW IMAGE
+                              Container(
+                                width: 110, // match width of the image card
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  gradient: _runTypeGradient(runType),
+                                  borderRadius: const BorderRadius.only(
+                                    bottomLeft: Radius.circular(12),
+                                    bottomRight: Radius.circular(12),
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    _runTypeLabel(runType),
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                           // favorite button (stays on image)
                           Positioned(
                             top: 2,
@@ -2887,33 +2957,33 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
                                 maxLines: 1, // Ensure it stays on one line
                               ),
 
-
                               FutureBuilder<Map<String, dynamic>>(
                                 future: fetchRatingStats(serviceId),
                                 builder: (ctx, snap) {
-                                  if (!snap.hasData) {
-                                    return const SizedBox(height: 20);
+                                  // Defaults when no reviews OR no data
+                                  double avg = 0.0;
+                                  int count = 0;
+
+                                  if (snap.hasData) {
+                                    avg = (snap.data!['avg'] as double?) ?? 0.0;
+                                    count = (snap.data!['count'] as int?) ?? 0;
                                   }
-
-                                  final avg = (snap.data!['avg'] as double?) ?? 0.0;
-                                  final count = (snap.data!['count'] as int?) ?? 0;
-
-                                  if (count == 0) return const SizedBox.shrink();
 
                                   return Row(
                                     mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.center, // ✅ keeps everything visually centered
+                                    crossAxisAlignment: CrossAxisAlignment.center,
                                     children: [
-                                      // ⭐ Stars Row
+                                      // ⭐ Stars (filled only if count > 0)
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.center,
                                         children: List.generate(
                                           5,
                                               (i) => Padding(
                                             padding: const EdgeInsets.only(right: 2.0),
                                             child: Icon(
-                                              i < avg.round() ? Icons.star_rounded : Icons.star_border_rounded,
+                                              count > 0 && i < avg.round()
+                                                  ? Icons.star_rounded
+                                                  : Icons.star_border_rounded,
                                               size: 16,
                                               color: Colors.amber,
                                             ),
@@ -2921,38 +2991,35 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
                                         ),
                                       ),
 
-                                      const SizedBox(width: 6),
+                                      const SizedBox(width: 3),
 
-                                      // 🔢 Rating text
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            avg.toStringAsFixed(1),
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.black87,
-                                              height: 1.0,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 3),
-                                          Text(
-                                            '($count)',
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                              color: Colors.black54,
-                                              height: 1.0,
-                                            ),
-                                          ),
-                                        ],
+                                      // ⭐ avg rating (always show)
+                                      Text(
+                                        avg.toStringAsFixed(1),
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 13,
+                                          color: Colors.black87,
+                                          height: 1.0,
+                                        ),
+                                      ),
+
+                                      const SizedBox(width: 3),
+
+                                      // ⭐ review count (always show)
+                                      Text(
+                                        '($count)',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.black54,
+                                          height: 1.0,
+                                        ),
                                       ),
                                     ],
                                   );
                                 },
                               ),
+
 
                               SizedBox(height: 2),
                               PriceAndPetSelector(
@@ -3171,7 +3238,7 @@ class VerifiedBadgeInner extends StatelessWidget {
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text("MFP Certified", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: AppColors.accentColor)),
+        title: Text("MFP Premium", style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: AppColors.accentColor)),
         content: Text(message, style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade800)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: Text("Close", style: GoogleFonts.poppins(fontWeight: FontWeight.w500, color: AppColors.accentColor))),
@@ -3202,7 +3269,7 @@ class VerifiedBadgeInner extends StatelessWidget {
             children: [
               const Icon(Icons.check_circle, size: 14, color: Colors.white),
               const SizedBox(width: 4),
-              Text("Certified", style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.3)),
+              Text("Premium", style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.3)),
             ],
           ),
         ),

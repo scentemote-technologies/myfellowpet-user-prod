@@ -235,6 +235,19 @@ class _PetProfileState extends State<PetProfile>
   // MARK: - Tab Widgets
   Widget _buildAboutTab(Map<String, dynamic> data) {
     final gender = data['gender'] as String?;
+    final pet_type = data['pet_type'] as String?;
+    final size = data['size'] as String?;
+    final createdAt = data['createdAt'];   // Firestore Timestamp
+    String createdAtDisplay = 'N/A';
+
+    if (createdAt != null) {
+      try {
+        final dt = (createdAt as Timestamp).toDate();
+        createdAtDisplay = DateFormat('dd MMM yyyy').format(dt);
+      } catch (e) {
+        createdAtDisplay = 'N/A';
+      }
+    }
     final weightType = data['weight_type'] as String?;
     String weightDisplay;
     if (weightType == 'exact') {
@@ -244,12 +257,32 @@ class _PetProfileState extends State<PetProfile>
     } else {
       weightDisplay = 'N/A';
     }
+
+
     final isNeutered = data['is_neutered'] as bool?;
     final activityLevel = data['activity_level'] as String?;
     final likes = List<String>.from(data['likes'] ?? []);
     final dislikes = List<String>.from(data['dislikes'] ?? []);
     final notes = data['notes'] as String?;
     final history = data['medical_history'] as String?;
+    String neuterLabel;
+
+    if (gender != null) {
+      final g = gender.toLowerCase().trim();
+
+      if (g == 'male') {
+        neuterLabel = 'Neutered';
+      } else if (g == 'female') {
+        neuterLabel = 'Spayed';
+      } else {
+        neuterLabel = 'Neutered / Spayed';
+      }
+    } else {
+      neuterLabel = 'Neutered / Spayed';
+    }
+
+    final neuterValue = isNeutered == true ? 'Yes' : 'No';
+
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -260,13 +293,17 @@ class _PetProfileState extends State<PetProfile>
             title: 'Key Info',
             icon: Icons.person_outline,
             children: [
-              _buildInfoRow(Icons.wc, 'Gender', gender),
-              _buildInfoRow(Icons.monitor_weight_outlined, 'Weight', weightDisplay),
+              _buildInfoRow('Gender', gender),
+              _buildInfoRow( 'Pet Type', pet_type),
+              _buildInfoRow( 'Size', size),
+              _buildInfoRow( 'Weight', weightDisplay),
+              // Use Yes/No
               _buildInfoRow(
-                  Icons.cut,
-                  isNeutered == true ? 'Neutered / Spayed' : 'Not Neutered',
-                  null),
-              _buildInfoRow(Icons.directions_run, 'Activity Level', activityLevel),
+                neuterLabel,
+                isNeutered == true ? 'Yes' : 'No',
+              ),
+
+              _buildInfoRow( 'Activity Level', activityLevel),
             ],
           ),
           if (likes.isNotEmpty)
@@ -277,9 +314,26 @@ class _PetProfileState extends State<PetProfile>
                 Colors.orange.shade400),
           if (notes != null && notes.isNotEmpty)
             _buildTextCard('Notes', notes, Icons.note_alt_outlined),
-          if (history != null && history.isNotEmpty)
-            _buildTextCard(
-                'Medical History', history, Icons.history_edu_outlined),
+          const SizedBox(height: 5), // Extra space for FAB
+
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Profile Created On $createdAtDisplay',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
+                    color: accent,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+
           const SizedBox(height: 80), // Extra space for FAB
         ],
       ),
@@ -288,6 +342,7 @@ class _PetProfileState extends State<PetProfile>
 
   Widget _buildHealthTab(Map<String, dynamic> data) {
     final allergies = data['allergies'] as String?;
+    final history = data['medical_history'] as String?;
     final conditions = data['medical_conditions'] as String?;
     final diet = data['diet_notes'] as String?;
     final vetName = data['vet_name'] as String?;
@@ -304,19 +359,20 @@ class _PetProfileState extends State<PetProfile>
             icon: Icons.medical_services_outlined,
             children: [
               _buildInfoRow(
-                  Icons.warning_amber_rounded, 'Allergies', allergies),
-              _buildInfoRow(Icons.coronavirus_outlined,
+                  'Allergies', allergies),
+              _buildInfoRow(
                   'Existing Conditions', conditions),
-              _buildInfoRow(Icons.restaurant_menu, 'Dietary Notes', diet),
+              _buildInfoRow(
+                  'Medical History', history),
+              _buildInfoRow('Dietary Notes', diet),
             ],
           ),
           _buildInfoCard(
             title: 'Veterinary Details',
             icon: Icons.local_hospital_outlined,
             children: [
-              _buildInfoRow(Icons.person_pin_circle_outlined, 'Vet Name', vetName),
+              _buildInfoRow('Vet Name', vetName),
               _buildInfoRow(
-                Icons.phone_outlined,
                 'Vet Phone',
                 vetPhone,
                 isPhone: true,
@@ -327,7 +383,7 @@ class _PetProfileState extends State<PetProfile>
             title: 'Emergency Contact',
             icon: Icons.contact_phone_outlined,
             children: [
-              _buildInfoRow(Icons.phone_in_talk_outlined, 'Contact Info',
+              _buildInfoRow('Contact Info',
                   emergencyContact,
                   isPhone: true),
             ],
@@ -438,7 +494,7 @@ class _PetProfileState extends State<PetProfile>
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String? value,
+  Widget _buildInfoRow(String label, String? value,
       {bool isPhone = false}) {
     if (value == null || value.isEmpty || value == 'N/A') {
       return const SizedBox.shrink();
@@ -448,8 +504,6 @@ class _PetProfileState extends State<PetProfile>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.grey.shade600, size: 20),
-          const SizedBox(width: 16),
           Text(
             '$label:',
             style: GoogleFonts.poppins(

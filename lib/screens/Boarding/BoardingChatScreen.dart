@@ -4,13 +4,20 @@ import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart'; // REQUIRED: Add intl to pubspec.yaml
 
+import '../Tickets/chat_support.dart';
 import '../chat_helper.dart';
 
 class BoardingChatScreen extends StatefulWidget {
   final String chatId;
-  const BoardingChatScreen({Key? key, required this.chatId}) : super(key: key);
+  final String shopName;
+  final String bookingId;
+  final String serviceId;
+
+  const BoardingChatScreen({Key? key, required this.chatId, required this.shopName, required this.bookingId, required this.serviceId}) : super(key: key);
 
   @override
   _BoardingChatScreenState createState() => _BoardingChatScreenState();
@@ -24,8 +31,10 @@ class _BoardingChatScreenState extends State<BoardingChatScreen> {
   bool _userChatEnabled = true;
   bool _spChatEnabled = true;
 
-  static const Color primaryColor = Color(0xFF2CB4B6); // Your teal primary color
-  static const Color accentColor = Color(0xFFE0F7FA); // A light, complementary color
+  // --- Design Constants ---
+  static const Color primaryColor = Color(0xFF2CB4B6);
+  static const Color primaryDark = Color(0xFF1F8E90);
+  static const Color bgGrey = Color(0xFFF2F4F7); // WhatsApp-like background grey
 
   @override
   void initState() {
@@ -78,24 +87,28 @@ class _BoardingChatScreenState extends State<BoardingChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Boarding Chat', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 1,
-      ),
+      backgroundColor: bgGrey, // Light grey background like modern chat apps
+      appBar: _buildModernAppBar(),
       body: Column(
         children: [
           if (!_userChatEnabled || !_spChatEnabled)
             Container(
+              width: double.infinity,
               color: Colors.red.shade50,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(
-                !_userChatEnabled
-                    ? 'Admin has blocked your ability to chat.'
-                    : "Admin has blocked Service Provider's ability to chat.",
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.red.shade700),
-                textAlign: TextAlign.center,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: Colors.red.shade700),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      !_userChatEnabled
+                          ? 'Messaging disabled by Admin.'
+                          : "Service Provider cannot reply right now.",
+                      style: GoogleFonts.poppins(fontSize: 13, color: Colors.red.shade800, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
               ),
             ),
           Expanded(
@@ -110,114 +123,286 @@ class _BoardingChatScreenState extends State<BoardingChatScreen> {
                   message: msg,
                 );
               },
+              // 1. Theme Configuration
               theme: DefaultChatTheme(
-                backgroundColor: Colors.grey.shade50, // A light background for the chat
+                backgroundColor: bgGrey,
+
+                // Input Bar Styling
                 inputBackgroundColor: Colors.white,
                 inputTextColor: Colors.black87,
-                inputTextCursorColor: primaryColor,
+                inputPadding: const EdgeInsets.all(14),
                 inputBorderRadius: BorderRadius.circular(24),
-                inputPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                inputTextStyle: GoogleFonts.poppins(color: Colors.black87, fontSize: 16),
                 inputContainerDecoration: BoxDecoration(
                   color: Colors.white,
-                  border: Border.all(color: Colors.grey.shade200, width: 1.5),
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 5),
-                    ),
-                  ],
+                  border: Border(top: BorderSide(color: Colors.grey.shade200)),
                 ),
-                sendButtonIcon: Icon(
-                  Icons.send_rounded,
-                  color: primaryColor,
-                  size: 24,
+                inputTextCursorColor: primaryColor,
+
+                // Send Button Styling
+                sendButtonIcon: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: const BoxDecoration(
+                    color: primaryColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
                 ),
-                primaryColor: primaryColor,
-                secondaryColor: Colors.grey.shade200,
-                sentMessageBodyTextStyle: GoogleFonts.poppins(color: Colors.white, fontSize: 14),
-                receivedMessageBodyTextStyle: GoogleFonts.poppins(color: Colors.black87, fontSize: 14),
-                userAvatarTextStyle: GoogleFonts.poppins(fontSize: 12),
+
+                // 👇👇👇 CRITICAL FIX: Change color to Colors.black87 👇👇👇
+                sentMessageBodyTextStyle: GoogleFonts.poppins(
+                  color: Colors.black87, // <--- WAS WHITE, NOW BLACK
+                  fontSize: 14.5,
+                  height: 1.2,
+                ),
+
+                receivedMessageBodyTextStyle: GoogleFonts.poppins(
+                  color: Colors.black87,
+                  fontSize: 14.5,
+                  height: 1.2,
+                ),
+
+                // Date Separators
+                dateDividerTextStyle: GoogleFonts.poppins(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              // REPLACE your entire bubbleBuilder with this one
 
-              bubbleBuilder: (child, {required message, required nextMessageInGroup}) {
-                final isMyMessage = message.author.id == _me.id;
-                final role = (message.metadata?['sent_by'] ?? '').toString();
-                String label;
-                Color bubbleColor;
+              // 2. Custom Bubble Builder
+              bubbleBuilder: _buildCustomBubble,
 
-                switch (role) {
-                  case 'sp':
-                    label = 'Service Provider';
-                    bubbleColor = Colors.grey.shade200;
-                    break;
-                  case 'admin':
-                    label = 'Admin';
-                    bubbleColor = Colors.red.shade100;
-                    break;
-                  case 'user':
-                  default:
-                    label = 'You';
-                    bubbleColor = primaryColor;
-                    break;
-                }
-
-                if (isMyMessage) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: primaryColor,
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(16),
-                        topRight: Radius.circular(16),
-                        bottomLeft: Radius.circular(16),
-                        bottomRight: nextMessageInGroup ? Radius.circular(4) : Radius.circular(16),
-                      ),
-                    ),
-                    // --- FIX #1: The smaller padding you already applied ---
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    child: child,
-                  );
-                } else {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8.0, bottom: 4.0),
-                        child: Text(
-                          label,
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: bubbleColor,
-                          borderRadius: BorderRadius.only(
-                            topLeft: Radius.circular(16),
-                            topRight: Radius.circular(16),
-                            bottomLeft: nextMessageInGroup ? Radius.circular(4) : Radius.circular(16),
-                            bottomRight: Radius.circular(16),
-                          ),
-                        ),
-                        // --- FIX #2: Apply the same smaller padding here for received messages ---
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                        child: child,
-                      ),
-                    ],
-                  );
-                }
-              },
+              // 3. Remove default avatars (we handle labels inside bubbles for clarity)
+              showUserAvatars: false,
+              showUserNames: false,
             ),
           ),
         ],
       ),
     );
   }
-}
 
+  // --- WIDGET HELPERS ---
+
+  PreferredSizeWidget _buildModernAppBar() {
+    return AppBar(
+      backgroundColor: Colors.white,
+      elevation: 0,
+      scrolledUnderElevation: 2,
+      shadowColor: Colors.black.withOpacity(0.1),
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Colors.black87),
+        onPressed: () => Navigator.pop(context),
+      ),
+      titleSpacing: 0,
+      title: Row(
+        children: [
+          // Avatar
+          Container(
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: primaryColor, width: 1.5),
+            ),
+            child: const CircleAvatar(
+              radius: 18,
+              backgroundColor: Colors.grey,
+              child: Icon(Icons.store, color: Colors.white, size: 20),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Name & Status
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Boarding Service', // Ideally pass shopName to widget
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Support',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => UserOrderSupportPage(
+                  initialOrderId: widget.bookingId,
+                  serviceId: widget.serviceId,
+                  shop_name: widget.shopName,
+                  user_phone_number: FirebaseAuth.instance.currentUser?.phoneNumber,
+                  user_uid: FirebaseAuth.instance.currentUser?.uid, // if you don’t store email, keep blank
+                ),
+              ),
+            );
+          },
+
+
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                FontAwesomeIcons.headset,
+                size: 20,
+                color: Colors.black87,
+              ),
+            ],
+          ),
+        )
+      ],
+    );
+  }
+
+  Widget _buildCustomBubble(
+      Widget child, {
+        required types.Message message,
+        required bool nextMessageInGroup,
+      }) {
+    final isMyMessage = message.author.id == _me.id;
+    final role = (message.metadata?['sent_by'] ?? '').toString();
+    final time = DateFormat('hh:mm a').format(
+      DateTime.fromMillisecondsSinceEpoch(message.createdAt ?? 0),
+    );
+
+    String label = '';
+    Color labelColor = Colors.grey;
+    if (!isMyMessage) {
+      if (role == 'sp') {
+        label = 'Service Provider';
+        labelColor = primaryColor;
+      } else if (role == 'admin') {
+        label = 'Admin';
+        labelColor = Colors.orange.shade800;
+      }
+    }
+
+    return Align(
+      alignment: isMyMessage ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        constraints:
+        BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        decoration: BoxDecoration(
+          color: Colors.white, // White background for BOTH
+
+          // Teal Border for ME, Grey Border for THEM
+          border: Border.all(
+            color: isMyMessage ? primaryColor : Colors.grey.shade300,
+            width: 1.5,
+          ),
+
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: isMyMessage ? const Radius.circular(16) : const Radius.circular(2),
+            bottomRight: isMyMessage ? const Radius.circular(2) : const Radius.circular(16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 3,
+              offset: const Offset(0, 2),
+            )
+          ],
+        ),
+        child: Stack(
+          children: [
+            // 1. The Message Text
+            Padding(
+              // Add bottom padding to prevent text from being covered by the time
+              // if it reaches the last line.
+              padding: const EdgeInsets.only(
+                  left: 0,
+                  right: 0,
+                  top: 4,
+                  bottom: 12 // Space reserved for the timestamp
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Label (e.g. Service Provider)
+                  if (!isMyMessage && label.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2.0),
+                      child: Text(
+                        label,
+                        style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: labelColor,
+                        ),
+                      ),
+                    ),
+                  // The actual text from the library
+                  child,
+                ],
+              ),
+            ),
+
+            // 2. The Time (Floating in the corner)
+            Positioned(
+              bottom: 0,
+              // If it's my message, put time on Right. If SP, put on Left.
+              right: isMyMessage ? 0 : null,
+              left: isMyMessage ? null : 0,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 2, right: 4, left: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      time,
+                      style: GoogleFonts.poppins(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w500,
+                        color: isMyMessage
+                            ? Colors.black54 // Darker grey for visibility
+                            : Colors.grey.shade500,
+                      ),
+                    ),
+                    if (isMyMessage) ...[
+                      const SizedBox(width: 3),
+                      Icon(
+                        Icons.done_all_rounded,
+                        size: 13,
+                        color: primaryColor.withOpacity(0.8),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

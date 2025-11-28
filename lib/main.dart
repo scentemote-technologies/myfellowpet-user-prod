@@ -19,7 +19,6 @@ import 'package:myfellowpet_user/screens/Boarding/summary_page_boarding.dart';
 import 'package:myfellowpet_user/screens/BottomBars/homebottomnavigationbar.dart';
 import 'package:myfellowpet_user/screens/HomeScreen/HomeScreen.dart';
 import 'package:myfellowpet_user/screens/Orders/BoardingOrders.dart';
-import 'package:myfellowpet_user/screens/pet_store/PetStoreHomePage.dart';
 import 'package:myfellowpet_user/screens/reviews/review_gate.dart';
 import 'package:recaptcha_enterprise_flutter/recaptcha_enterprise.dart';
 import 'dart:async';
@@ -270,10 +269,6 @@ class _MyAppState extends State<MyApp> {
 }
 
 
-// -------------------------------------------------------------------------
-// --- AUTH GATE (No Changes Needed) ---
-// -------------------------------------------------------------------------
-
 class AuthGate extends StatelessWidget {
   const AuthGate({Key? key}) : super(key: key);
 
@@ -291,7 +286,6 @@ class AuthGate extends StatelessWidget {
       }
     }
 
-    // 🔍 1️⃣ Check inactivity duration before updating
     bool shouldLock = false;
     if (lastLogin != null) {
       final daysSinceLast = DateTime.now().difference(lastLogin).inDays;
@@ -301,7 +295,6 @@ class AuthGate extends StatelessWidget {
       }
     }
 
-    // 🔒 2️⃣ If inactive > 90 days, lock account
     if (shouldLock) {
       await userRef.update({
         'account_status': 'locked',
@@ -311,7 +304,6 @@ class AuthGate extends StatelessWidget {
       return PhoneAuthPage(); // replace with your lock/reactivation page
     }
 
-    // ✅ 3️⃣ Otherwise, mark active and update last_login
     if (userDoc.exists) {
       await userRef.update({
         'last_login': FieldValue.serverTimestamp(),
@@ -319,14 +311,12 @@ class AuthGate extends StatelessWidget {
       });
     }
 
-    // 4️⃣ Proceed as usual if active
     final accountStatus = userDoc.data()?['account_status'] ?? 'active';
     if (accountStatus == 'locked') {
       print('🔒 Account already locked. Redirecting...');
       return PhoneAuthPage();
     }
 
-    // 5️⃣ Active booking check (unchanged logic, modified return structure)
     final activeBooking = await getActiveBookingDocId(user.uid);
     if (activeBooking != null) {
       final parts = activeBooking.split('|');
@@ -345,8 +335,6 @@ class AuthGate extends StatelessWidget {
           print('🚀 Redirecting to active SummaryPage...');
           final data = doc.data()!;
 
-          // ✨ CRITICAL FIX 2 & 3: Safely retrieve all rates and the petSizesList
-
           final Map<String, int> dailyRates = safeRateMap(data['rates_daily']);
           final Map<String, int> walkingRates = safeRateMap(data['walkingRates']);
           final Map<String, int> mealRates = safeRateMap(data['mealRates']);
@@ -357,29 +345,36 @@ class AuthGate extends StatelessWidget {
 
           for (var petDoc in petServicesSnapshot.docs) {
             final petDocData = petDoc.data();
-            // Ensure petDocData exists and convert the inner map safely
             if (petDocData.isNotEmpty) {
               perDayServices[petDoc.id] = petDocData.map(
                     (k, v) => MapEntry(k.toString(), v is Map ? Map<String, dynamic>.from(v) : v),
               );
             }
           }
-          // *******************************************************
 
-          // Ensure petSizesList is correctly cast as List<Map<String, dynamic>>
           final petSizesList = List<Map<String, dynamic>>.from(
               (data['pet_sizes'] ?? data['petSizesList'] ?? [])
           );
 
-          // Calculate single-day boarding rate (for the legacy boarding_rate field)
-          // This is generally unreliable but kept for compatibility.
-          double singleDayBoardingRate = 0.0;
-          if (petSizesList.isNotEmpty) {
-            final firstPet = petSizesList.first;
-            singleDayBoardingRate = (firstPet['price'] as double?) ?? 0.0;
-          }
+
 
           return SummaryPage(
+            spServiceFeeExcGst: data['sp_service_fee_exc_gst']?.toDouble() ?? 0,
+            spServiceFeeIncGst: data['sp_service_fee_inc_gst']?.toDouble() ?? 0,
+            gstOnSpService: data['gst_on_sp_service']?.toDouble() ?? 0,
+
+            platformFeeExcGst: data['platform_fee_exc_gst']?.toDouble() ?? 0,
+            platformFeeIncGst: data['platform_fee_inc_gst']?.toDouble() ?? 0,
+            gstOnPlatformFee: data['gst_on_platform_fee']?.toDouble() ?? 0,
+
+            totalAmountPaid: data['total_amount_paid']?.toDouble() ?? 0,
+
+            remainingRefundableAmount: data['remaining_refundable_amount']?.toDouble() ?? 0,
+            totalRefundedAmount: data['total_refunded_amount']?.toDouble() ?? 0,
+
+            adminFeeTotal: data['admin_fee_collected_total']?.toDouble() ?? 0,
+            adminFeeGstTotal: data['admin_fee_gst_collected_total']?.toDouble() ?? 0,
+
             serviceId: serviceId,
             bookingId: bookingId,
             shopName: data['shopName'] ?? '',
@@ -407,6 +402,7 @@ class AuthGate extends StatelessWidget {
             openTime: data['openTime'] ?? '',
             closeTime: data['closeTime'] ?? '',
             areaName: data['areaName'] ?? '',
+            areaNameOnly: data['areaName'] ?? '',
             // Use the total boarding cost from the cost breakdown
             boarding_rate: double.tryParse(data['cost_breakdown']?['boarding_cost']?.toString() ?? '0') ?? 0,
             foodOption: data['foodOption'] ?? '',

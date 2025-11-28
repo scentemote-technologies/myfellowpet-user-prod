@@ -970,8 +970,28 @@ import '../Boarding/boarding_parameters_selection_page.dart';
           onTap: _pickImage,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Image.
-            file(f, height: 220, width: double.infinity, fit: BoxFit.cover),
+// ✨ ADDED: frameBuilder to handle the loading state
+            child: Image.file(
+              f,
+              height: 220,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                // If loaded immediately or frame is ready, show image
+                if (wasSynchronouslyLoaded || frame != null) {
+                  return child;
+                }
+                // Otherwise, show the loader in a grey box
+                return Container(
+                  height: 220,
+                  width: double.infinity,
+                  color: Colors.grey.shade100,
+                  child: const Center(
+                    child: CircularProgressIndicator(color: teal),
+                  ),
+                );
+              },
+            ),
           ),
         );
       } else {

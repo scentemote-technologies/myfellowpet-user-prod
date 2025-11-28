@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app_colors.dart';
@@ -454,21 +455,85 @@ class _AccountsPageState extends State<AccountsPage> {
               onTap: () => Navigator.push(
                   context, MaterialPageRoute(builder: (_) => HiddenServicesPage())),
             ),
-            Divider(),
+            FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance
+                  .collection('settings')
+                  .doc('links')
+                  .get(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return SizedBox();
 
-            ListTile(
-              title: Text(
-                'Link to AI',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              trailing: Icon(Icons.keyboard_arrow_right, color: AppColors.primary),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ConnectAIPage()),
-              ),
+                final data = snapshot.data!.data() as Map<String, dynamic>?;
+                final gptData = data?['myfellowpet_gpt'];
+
+                if (gptData == null) return SizedBox();
+
+                final bool isActive = gptData['active'] == true;
+                final String? link = gptData['link'];
+                final Timestamp? ts = gptData['ts'];
+
+                if (!isActive || link == null || link.isEmpty) return SizedBox();
+
+                // NEW badge check
+                bool showNew = false;
+                if (ts != null) {
+                  final now = DateTime.now();
+                  final created = ts.toDate();
+                  final diff = now.difference(created).inDays;
+                  print("TS => ${ts.toDate()} DIFF => ${DateTime.now().difference(ts.toDate()).inDays}");
+
+
+                  if (diff <= 30) showNew = true;
+                }
+
+                return Column(
+                  children: [
+                    Divider(),  // <-- show divider above tile
+
+                    ListTile(
+                      title: Row(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'MyFellowPet Intelligence',
+                              style: GoogleFonts.poppins(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+
+                          if (showNew)
+                            Container(
+                              margin: EdgeInsets.only(left: 8),
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.accentColor,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                "NEW",
+                                style: GoogleFonts.poppins(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      trailing:
+                      Icon(Icons.keyboard_arrow_right, color: AppColors.primary),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ConnectAIPage()),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
             /*Divider(),
 

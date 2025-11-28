@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../app_colors.dart';
 import '../../preloaders/PetsInfoProvider.dart';
 import '../../preloaders/distance_provider.dart';
@@ -78,7 +79,6 @@ Future<Map<String, dynamic>> fetchRatingStats(String serviceId) async {
   };
 }
 
-
 class BoardingServiceDetailPage extends StatefulWidget {
   final String documentId;
   final String shopName;
@@ -107,8 +107,7 @@ class BoardingServiceDetailPage extends StatefulWidget {
     required this.pets,
     required this.mode,
     required this.rates,
-    required this.isOfferActive, this.initialSelectedPet, required this.preCalculatedStandardPrices, required this.preCalculatedOfferPrices, required this.otherBranches, required this.isCertified, // ADD THIS
-
+    required this.isOfferActive, this.initialSelectedPet, required this.preCalculatedStandardPrices, required this.preCalculatedOfferPrices, required this.otherBranches, required this.isCertified,
   }) : super(key: key);
 
   @override
@@ -149,17 +148,367 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
   String _fullAddress = '';
   Map<String, int> _refundPolicy = {};
   List<String> _features = [];
-  // Pet & rates
   Map<String, String> _ratesDaily = {};
   Map<String, String> _walkingRates = {};
   Map<String, String> _mealRates = {};
   Map<String, String> _offerDailyRates = {};
   Map<String, String> _offerWalkingRates = {};
   Map<String, String> _offerMealRates = {};
-  List<String> _petDocIds = []; // store pet document IDs
+  List<String> _petDocIds = [];
   String? _selectedPet;
 
   late Future<Map<String, dynamic>> _dataFuture;
+
+  Widget _partnerPolicyButton(BuildContext context, String? policyUrl) {
+    // 1. Check if URL exists immediately
+    if (policyUrl == null || policyUrl.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final width = MediaQuery.of(context).size.width;
+
+    // Responsive size scaling
+    final double vPad = width * 0.025;
+    final double fontSize = width * 0.035;
+    final double radius = width * 0.03;
+
+    // 2. Return the button directly (Left Aligned)
+    return Padding(
+      // Matches the 12px padding used in the rest of your UI
+      padding: const EdgeInsets.only(bottom: 20.0, top: 10, left: 12, right: 12),
+      child: Align(
+        alignment: Alignment.centerLeft, // 👈 ALIGN LEFT
+        child: OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            backgroundColor: Colors.white,
+            side: const BorderSide(color: Colors.red, width: 1.2),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(radius),
+            ),
+            padding: EdgeInsets.symmetric(vertical: vPad, horizontal: 24),
+          ),
+          onPressed: () => _launchURL(policyUrl),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.picture_as_pdf_rounded,
+                color: Colors.red,
+                size: fontSize + 4,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                "View Partner Policy",
+                style: GoogleFonts.poppins(
+                  color: Colors.black87,
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _launchURL(String urlString) async {
+    final String encodedUrl = Uri.encodeComponent(urlString);
+    final String googleDocsUrl = 'https://docs.google.com/gview?url=$encodedUrl&embedded=true';
+    if (!await launchUrl(Uri.parse(googleDocsUrl), mode: LaunchMode.platformDefault)) {
+      // handle error
+    }
+  }
+
+
+  Widget _buildFeedingInfo(Map<String, dynamic> feedingDetails) {
+    if (feedingDetails.isEmpty) {
+      return Center(
+        child: Text("No feeding information provided.", style: GoogleFonts.poppins(color: Colors.grey.shade600)),
+      );
+    }
+    const desiredOrder = ['Morning Meal (Breakfast)', 'Afternoon Meal (Lunch)', 'Evening Meal (Dinner)', 'Treats', 'Water Availability'];
+    final mealEntries = feedingDetails.entries.toList()
+      ..sort((a, b) {
+        final aIndex = desiredOrder.indexWhere((name) => name.toLowerCase() == a.key.toLowerCase());
+        final bIndex = desiredOrder.indexWhere((name) => name.toLowerCase() == b.key.toLowerCase());
+        return (aIndex == -1 ? desiredOrder.length : aIndex).compareTo(bIndex == -1 ? desiredOrder.length : bIndex);
+      });
+
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 4),
+      itemCount: mealEntries.length,
+      itemBuilder: (context, index) {
+        final entry = mealEntries[index];
+        final mealData = entry.value as Map<String, dynamic>? ?? {};
+        return _SimpleMealCard(
+          mealTitle: entry.key,
+          mealData: mealData,
+          onDetailsPressed: _showMealDetailsDialog,
+        );
+      },
+    );
+  }
+
+  void _showMealDetailsDialog(BuildContext context, String mealTitle, Map<String, dynamic> mealData) {
+    final details = <Widget>[];
+    String getLabel(String fieldName) => fieldName == 'food_title' ? 'Meal Name' : fieldName.replaceAll('_', ' ').capitalize();
+
+    for (var entry in mealData.entries) {
+      if (entry.key == 'image') continue;
+      final value = entry.value;
+      final isValueMissing = value == null || (value is String && value.isEmpty) || (value is List && value.isEmpty);
+      details.add(Padding(
+        padding: const EdgeInsets.only(top: 10.0),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.info_outline, color: Colors.grey.shade600, size: 18),
+          const SizedBox(width: 12),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: GoogleFonts.poppins(color: Colors.black87, fontSize: 13),
+                children: [
+                  TextSpan(text: "${getLabel(entry.key)}: ", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                  TextSpan(
+                    text: isValueMissing ? "N/A" : (value is List ? value.join(', ') : value.toString()),
+                    style: GoogleFonts.poppins(
+                        color: isValueMissing ? Colors.grey.shade500 : Colors.grey.shade800,
+                        fontStyle: isValueMissing ? FontStyle.italic : FontStyle.normal),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ]),
+      ));
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(mealTitle.capitalize(), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (mealData['image'] != null && (mealData['image'] as String).isNotEmpty)
+              ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CachedNetworkImage(
+                    imageUrl: mealData['image'], width: double.infinity, height: 180, fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(height: 180, color: Colors.grey.shade200),
+                    errorWidget: (context, url, error) => Container(height: 180, color: Colors.grey.shade200, child: Icon(Icons.error)),
+                  )
+              ),
+            if (mealData['image'] != null && (mealData['image'] as String).isNotEmpty) const SizedBox(height: 12),
+            ...details.isNotEmpty ? details : [Text("No details to show.", style: GoogleFonts.poppins(color: Colors.grey.shade600))]
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: Text("Close", style: GoogleFonts.poppins(color: Colors.black87))),
+        ],
+      ),
+    );
+  }
+
+  void _showFeaturesDialog() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.35), // Smooth dim
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+              // 🏷️ Title
+              Row(
+                children: [
+                  Text(
+                    "Features",
+                    style: GoogleFonts.poppins(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 18),
+
+              // 📌 Content
+              _features.isEmpty
+                  ? Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Text(
+                  "No specific features listed.",
+                  style: GoogleFonts.poppins(
+                    fontSize: 14.5,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              )
+                  : Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: _features.map((feature) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 10, horizontal: 8),
+                        margin: const EdgeInsets.only(bottom: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.check_circle_rounded,
+                                color: Colors.green.shade600, size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                feature,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14.5,
+                                  color: Colors.black87,
+                                  height: 1.3,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              // 🔘 Close Button
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.black87,
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                  child: Text(
+                    "Close",
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  void _showRefundInfoDialog() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.35), // soft dim
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+              // Header
+              Row(
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      color: AppColors.primaryColor, size: 26),
+                  const SizedBox(width: 10),
+                  Text(
+                    "Refund Policy",
+                    style: GoogleFonts.poppins(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 5),
+
+              Padding(
+                padding: const EdgeInsets.only(top:7,bottom: 5),
+                child: Text(
+                  "If cancelled:",
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ),
+
+
+              const SizedBox(height: 2),
+
+              // CONTENT AREA
+              RefundPolicyChips(
+                refundRates: _refundPolicy,
+                design: _design,
+              ),
+
+              const SizedBox(height: 12),
+
+              // Close button
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.black87,
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                  child: Text(
+                    "Close",
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  // --- END DIALOG LOGIC ---
 
   Future<void> _fetchPetDetails(String petId) async {
     if (petId.isEmpty) return;
@@ -289,7 +638,6 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
     });
   }
 
-  // ✨ OPTIMIZED: This function now fetches all data in parallel
   Future<Map<String, dynamic>> _loadData() async {
     final serviceFuture = FirebaseFirestore.instance
         .collection('users-sp-boarding')
@@ -297,22 +645,18 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
         .get();
 
     final petsFuture = _fetchPetPricing(widget.documentId);
-
-    // ✨ ADDED: Fetch ratings at the same time
     final ratingsFuture = fetchRatingStats(widget.documentId);
 
-    // ✨ MODIFIED: Wait for all three futures
     final results = await Future.wait([
       serviceFuture,
       petsFuture,
-      ratingsFuture, // ✨
+      ratingsFuture,
     ]);
 
-    // ✨ MODIFIED: Return all data in a structured map
     return {
       'service': results[0] as DocumentSnapshot,
       'pets': results[1] as List<PetPricing>,
-      'ratings': results[2] as Map<String, dynamic>, // ✨
+      'ratings': results[2] as Map<String, dynamic>,
     };
   }
 
@@ -321,7 +665,6 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
   void initState() {
     super.initState();
     _dataFuture = _loadData();
-    // ✨ REMOVED redundant _petPricingFuture
     _fetchPetDocIds().then((_) {
       if (_selectedPet != null) {
         _fetchPetDetails(_selectedPet!);
@@ -369,38 +712,27 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
   }
 
 
-// Note: If you still need GoogleFonts, uncomment the import below and
-// replace 'TextStyle' with 'GoogleFonts.poppins(...)' as in your original code.
-// import 'package:google_fonts/google_fonts.dart';
-
   void _showPetWarningDialog(BuildContext context, List<Map<String, String>> rejectedPets) {
-    // Define custom brand color
     const Color brandPrimary = AppColors.primaryColor;
-    const Color warningColor = Color(0xFFFF0000); // Light Red/Warning tone
+    const Color warningColor = Color(0xFFFF0000);
 
-    // Use a modern AlertDialog for better adherence to platform standards
-    // and a cleaner, white background look.
     showDialog(
       context: context,
-      // ---------------------------------------------------
       barrierDismissible: true,
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: Colors.white,
-          // The default AlertDialog has a clean white background and elevation.
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.black87)),
           titlePadding: EdgeInsets.zero,
-          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 16), // Padding for the content column
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
 
-          // Wrap content in SingleChildScrollView for responsiveness on small screens
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // 1. Icon Header
                 Container(
-                  padding: const EdgeInsets.all(16), // Increased padding for a bolder look
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: brandPrimary.withOpacity(0.1),
@@ -412,37 +744,26 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
                   ),
                 ),
                 const SizedBox(height: 18),
-
-                // 2. Title
                 Text(
                   "Booking Compatibility Check",
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: Colors.black87,
-                    // For GoogleFonts: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.black87),
                   ),
                 ),
                 const SizedBox(height: 8),
-
-                // 3. Subtitle/Instruction
                 Text(
                   "Heads up! Some of your saved pets may not be listed as accepted by this provider. Please confirm with them before finalizing your booking.",
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Colors.grey.shade600,
                     height: 1.4,
-                    // For GoogleFonts: GoogleFonts.poppins(fontSize: 14, color: Colors.grey.shade600, height: 1.4),
                   ),
                 ),
                 const SizedBox(height: 24),
-
-                // 4. Separator
                 Divider(color: Colors.grey.shade200, height: 1),
                 const SizedBox(height: 16),
-
-                // 5. Rejected Pets List (Refined UI)
-                // Added a label for clarity
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -502,7 +823,6 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
 
                 const SizedBox(height: 24),
 
-                // 6. Action Button (CTA)
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -625,7 +945,6 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
                   ),
                 ),
                 const SizedBox(height: 12),
-                // ✨ MODIFIED: Simplified RichText message
                 RichText(
                   textAlign: TextAlign.center,
                   text: TextSpan(
@@ -716,10 +1035,214 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
     super.dispose();
   }
 
+  void _showFeedingInfoDialog(
+      BuildContext context,
+      Map<String, Map<String, dynamic>> allFeedingDetails,
+      String? initialSelectedPet,
+      Function(String)? onPetSelected) {
+
+    // Use initialSelectedPet for the *first build* if available, otherwise default to the first pet in the data.
+    String selectedPetInDialog = initialSelectedPet ?? allFeedingDetails.keys.first;
+    if (!allFeedingDetails.containsKey(selectedPetInDialog)) {
+      selectedPetInDialog = allFeedingDetails.keys.first;
+    }
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            // The current pet's feeding details, based on the dialog's state
+            final currentFeedingDetails = allFeedingDetails[selectedPetInDialog] ?? {};
+
+            return AlertDialog(
+              backgroundColor: Colors.white,   // ← PURE WHITE BG (important)
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+              title: Row(
+                children: [
+                  Icon(Icons.restaurant_menu_outlined, color: AppColors.primaryColor.withOpacity(0.7)),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      "Feeding Information",
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 19),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: MediaQuery.of(context).size.height * 0.6,
+                child: Column(
+                  children: [
+                    // --- Pet Selection Dropdown (Only show if multiple pets exist) ---
+                    if (allFeedingDetails.length > 1)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: selectedPetInDialog, // Tracks the currently viewed pet
+                            isExpanded: true,
+                            items: allFeedingDetails.keys.map((petName) {
+                              return DropdownMenuItem<String>(
+                                value: petName,
+                                child: Text(petName.capitalize(),
+                                    style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
+                              );
+                            }).toList(),
+                            onChanged: (newValue) {
+                              if (newValue != null) {
+                                // Update the dialog's state to change the pet
+                                setState(() {
+                                  selectedPetInDialog = newValue;
+                                });
+                                // ✨ ADDED: Call the parent callback
+                                onPetSelected?.call(newValue);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    // --- Dynamic Meal Cards for the Selected Pet ---
+                    Expanded(
+                      child: _buildFeedingInfo(currentFeedingDetails),
+                    ),
+                  ],
+                ),
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(
+                    "Close",
+                    style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+              titlePadding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 24.0),
+            );
+          },
+        );
+      },
+    );
+  }
+
+
+  Widget _buildQuickAccessButtons(
+      BuildContext context,
+      Map<String, Map<String, dynamic>> allFeedingDetails,
+      String? policyUrl
+      ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3.0),
+      child: Column(
+        children: [
+          // --- ROW 1: Feeding & Features ---
+          Row(
+            children: [
+              _buildQuickAccessBox(
+                "Feeding Info",
+                Icons.restaurant_menu_rounded, // 🍽️ Cutlery
+                AppColors.accentColor,
+                    () => _showFeedingInfoDialog(context, allFeedingDetails, _selectedPet, (newPet) {
+                  if (newPet.isNotEmpty) {
+                    setState(() {
+                      _selectedPet = newPet;
+                    });
+                  }
+                }),
+              ),
+              const SizedBox(width: 8),
+              _buildQuickAccessBox(
+                "Features",
+                Icons.check_circle_rounded, // ✅ Green Circle
+                Colors.green.shade600,
+                _showFeaturesDialog,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8), // Gap between rows
+
+          // --- ROW 2: Refund & Partner Policy ---
+          Row(
+            children: [
+              _buildQuickAccessBox(
+                "Refund Policy",
+                Icons.percent_rounded, // % Percent
+                Colors.black87,
+                _showRefundInfoDialog,
+              ),
+              // Only show Partner Policy button if URL exists
+              if (policyUrl != null && policyUrl.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                _buildQuickAccessBox(
+                  "Partner Policy",
+                  Icons.picture_as_pdf_rounded, // 📕 Red PDF
+                  Colors.red.shade600,
+                      () => _launchURL(policyUrl),
+                ),
+              ]
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickAccessBox(String title, IconData icon, Color iconColor, VoidCallback onTap) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          height: 36, // ✨ Reduced height (was 40)
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.black87, width: 1.0), // Thinner border
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 15, color: iconColor), // ✨ Icon added
+              const SizedBox(width: 6),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    title,
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                      fontSize: 12.5, // Slightly smaller font
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
-      future: _dataFuture, // Use the new combined future
+      future: _dataFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(
@@ -762,10 +1285,8 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
           );
         }
 
-        // --- Extract data from the new future ---
         final serviceDoc = snapshot.data!['service'] as DocumentSnapshot;
         final allPetPricing = snapshot.data!['pets'] as List<PetPricing>;
-        // ✨ NEW: Extract the ratings we fetched
         final ratingStats = snapshot.data!['ratings'] as Map<String, dynamic>;
 
         if (!serviceDoc.exists) {
@@ -812,12 +1333,9 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
 
         _petDocIds = allPetPricing.map((p) => p.petName).toList();
 
-        // ✨ MODIFIED: Safely re-check and reset _selectedPet if it's null OR if the current value is no longer valid in the new list.
         if (_selectedPet == null || !_petDocIds.contains(_selectedPet)) {
           _selectedPet = widget.initialSelectedPet ?? (_petDocIds.isNotEmpty ? _petDocIds.first : null);
         }
-
-        print('DEBUG STATE: Selected Pet: $_selectedPet, Available Pet IDs: $_petDocIds');
 
         if (_selectedPet == null) {
           return Scaffold(
@@ -929,6 +1447,7 @@ $_district, $_state - $_postalCode
                         ),
                       ),
                     ),
+
                     Positioned(
                       top: 40,
                       left: 15,
@@ -977,7 +1496,6 @@ $_district, $_state - $_postalCode
                                     else
                                       const ProfileVerified(),
                                     const SizedBox(width: 8),
-                                    // ✨ MODIFIED: Pass the pre-fetched stats
                                     RatingBadge(ratingStats: ratingStats),
                                   ],
                                 ),
@@ -1052,21 +1570,49 @@ $_district, $_state - $_postalCode
                 ),
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    "Pets We Service",
-                    style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF2D3436),
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      // ✨ NEW QUICK ACCESS BUTTONS ADDED HERE
+                      _buildQuickAccessButtons(context, allFeedingDetails, serviceData['partner_policy_url'] as String?),
+
+                      if (imageUrls.isNotEmpty)
+                        _GalleryGridSection(
+                          imageUrls: imageUrls,
+                          design: _design,
+                        ),
+
+                    ],
                   ),
                 ),
-                const SizedBox(height: 2),
                 Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: PetChipsRow(
-                    pets: widget.pets,
-                    initialSelectedPet: widget.pets.isNotEmpty ? widget.pets[0] : "",
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: PetPricingTable(
+                    isOfferActive: widget.isOfferActive,
+                    petDocIds: _petDocIds,
+                    ratesDaily: allRatesDaily,
+                    walkingRates: allWalkingRates,
+                    mealRates: allMealRates,
+                    offerRatesDaily: allOfferRatesDaily,
+                    offerWalkingRates: allOfferWalkingRates,
+                    offerMealRates: allOfferMealRates,
+                    initialSelectedPet: _selectedPet,
+
+                    onPetSelected: (newPetId) {
+                      if (newPetId != null) {
+                        setState(() {
+                          _selectedPet = newPetId;
+
+                          final newPetData = allPetPricing.firstWhere(
+                                (p) => p.petName == newPetId,
+                          );
+
+                          _acceptedSizes = newPetData.acceptedSizes;
+                          _acceptedBreeds = newPetData.acceptedBreeds;
+                        });
+                      }
+                    },
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -1086,50 +1632,11 @@ $_district, $_state - $_postalCode
                     }
                   },
                 ),
-                PetPricingTable(
-                  isOfferActive: widget.isOfferActive,
-                  petDocIds: _petDocIds,
-                  ratesDaily: allRatesDaily,
-                  walkingRates: allWalkingRates,
-                  mealRates: allMealRates,
-                  offerRatesDaily: allOfferRatesDaily,
-                  offerWalkingRates: allOfferWalkingRates,
-                  offerMealRates: allOfferMealRates,
-                  initialSelectedPet: _selectedPet,
-                  // ✨ ADDED: Callback to update the state variable
-                  onPetSelected: (newPetId) {
-                    if (newPetId != null) {
-                      setState(() {
-                        _selectedPet = newPetId;
-                        // Also update the accepted sizes/breeds for PetVarietiesTable
-                        final newPetData = allPetPricing.firstWhere((p) => p.petName == newPetId);
-                        _acceptedSizes = newPetData.acceptedSizes;
-                        _acceptedBreeds = newPetData.acceptedBreeds;
-                      });
-                    }
-                  },
-                ),
+
                 const SizedBox(height: 16),
-                const SizedBox(height: 16),
-                FeedingInfoButton(
-                  allFeedingDetails: allFeedingDetails,
-                  initialSelectedPet: _selectedPet,
-                  // ✨ ADDED: Callback to update the state variable
-                  onPetSelected: (newPetId) {
-                    if (newPetId != null) {
-                      setState(() {
-                        _selectedPet = newPetId;
-                        // Also update the accepted sizes/breeds for PetVarietiesTable
-                        final newPetData = allPetPricing.firstWhere((p) => p.petName == newPetId);
-                        _acceptedSizes = newPetData.acceptedSizes;
-                        _acceptedBreeds = newPetData.acceptedBreeds;
-                      });
-                    }
-                  },
-                ),
-                SizedBox(height: 8),
+
                 Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  padding: EdgeInsets.symmetric(horizontal: 18),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1139,76 +1646,16 @@ $_district, $_state - $_postalCode
                         content: _description,
                         design: _design,
                       ),
-                      const SizedBox(height: 13),
-                      Text(
-                        "Gallery",
-                        style: GoogleFonts.poppins(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF2D3436),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-
-                      // ✨ OPTIMIZED: Removed FutureBuilder.
-                      // Image.network will handle its own loading.
-                      if (imageUrls.isNotEmpty)
-                        _GalleryGridSection(
-                          imageUrls: imageUrls,
-                          design: _design,
-                        ),
-
-                      const SizedBox(height: 14),
-                      if (_features.isNotEmpty)
-                        _DetailSection(
-                          title: "Features",
-                          content: '',
-                          design: _design,
-                          child: Wrap(
-                            spacing: 12,
-                            runSpacing: 8,
-                            children: _features.map((feature) {
-                              return Row(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Icon(
-                                    Icons.check_circle,
-                                    color: Colors.green,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      feature,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                      const SizedBox(height: 14),
-                      if (_refundPolicy.isNotEmpty)
-                        RefundPolicyChips(
-                          refundRates: _refundPolicy,
-                          design: _design,
-                        ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 40),
               ],
             ),
           ),
           bottomNavigationBar: _ActionFooter(
             design: _design,
             onPressed: () {
-              // Capture navigation logic into a single function
               onConfirmNavigation() {
                 final selectedPetPricing = allPetPricing.firstWhere((p) => p.petName == _selectedPet);
 
@@ -1253,6 +1700,7 @@ $_district, $_state - $_postalCode
                       mealRates: mealRatesToPass,
                       refundPolicy: _refundPolicy,
                       fullAddress: _fullAddress,
+                      areaName: widget.areaName,
                       walkingRates: walkingRatesToPass,
                       feedingDetails: feedingDetailsToPass,
                     ),
@@ -1260,15 +1708,13 @@ $_district, $_state - $_postalCode
                 );
               }
 
-              // Check if a pet is selected and show confirmation dialog
               if (_selectedPet != null) {
                 _showBookingConfirmationDialog(
                   context,
-                  _selectedPet!.capitalize(), // Pass the capitalized pet type
-                  onConfirmNavigation,        // Pass the navigation function to execute on confirm
+                  _selectedPet!.capitalize(),
+                  onConfirmNavigation,
                 );
               } else {
-                // Handle case where no pet is selected (shouldn't happen based on previous logic)
                 onConfirmNavigation();
               }
             },
@@ -1278,7 +1724,6 @@ $_district, $_state - $_postalCode
     );
   }
 }
-
 class RefundPolicyChips extends StatefulWidget {
   final Map<String, int> refundRates;
   final DesignConstants design;
@@ -1312,28 +1757,30 @@ class _RefundPolicyChipsState extends State<RefundPolicyChips>
     _blinkController.dispose();
     super.dispose();
   }
-
   String _getRefundLabel(String key) {
     switch (key) {
       case 'gt_48h':
-        return 'If cancelled more than 2 days before';
+        return 'More than 48 hours before the start time';
       case 'gt_24h':
-        return 'If cancelled 1–2 days before';
+        return '24–48 hours before the start time';
       case 'gt_12h':
-        return 'If cancelled 12–24 hours before';
+        return '12–24 hours before the start time';
       case 'gt_4h':
-        return 'If cancelled 4–12 hours before';
+        return '4–12 hours before the start time';
       case 'lt_4h':
-        return 'If cancelled less than 4 hours before';
+        return 'Less than 4 hours before the start time';
       default:
         return key;
     }
   }
 
+
+
   @override
   Widget build(BuildContext context) {
     final entries = widget.refundRates.entries.toList();
-    final displayedEntries = _expanded ? entries : entries.take(2).toList();
+    final showEntries = _expanded ? entries : entries.take(2).toList();
+
     final orderMap = {
       'lt_4h': 0,
       'gt_4h': 1,
@@ -1342,51 +1789,66 @@ class _RefundPolicyChipsState extends State<RefundPolicyChips>
       'gt_48h': 4,
     };
 
-    final sortedEntries = displayedEntries.toList()
+    final sorted = showEntries.toList()
       ..sort((a, b) => orderMap[a.key]!.compareTo(orderMap[b.key]!));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          "Refund Policy",
-          style: GoogleFonts.poppins(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 8),
+        // --- Cards ---
         Column(
-          children: sortedEntries.asMap().entries.map((entry) {
+          children: sorted.asMap().entries.map((entry) {
             final idx = entry.key + 1;
             final refund = entry.value;
+
             return Container(
               width: double.infinity,
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              margin: const EdgeInsets.symmetric(vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Colors.grey.shade300),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black12.withOpacity(0.04),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    '$idx',
-                    style: GoogleFonts.poppins(
-                      fontWeight: FontWeight.bold,
-                      color: widget.design.primaryColor,
+
+                  // Number Badge
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: widget.design.primaryColor.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      "$idx",
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w700,
+                        color: widget.design.primaryColor,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+
+                  const SizedBox(width: 12),
+
+                  // Text Content
                   Expanded(
                     child: Text(
-                      '${_getRefundLabel(refund.key)}: ${refund.value}%',
+                      "${_getRefundLabel(refund.key)} — ${refund.value}%",
                       style: GoogleFonts.poppins(
-                        color: Colors.black87,
-                        fontSize: 13,
+                        fontSize: 14,
                         fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                        height: 1.3,
                       ),
                     ),
                   ),
@@ -1395,47 +1857,49 @@ class _RefundPolicyChipsState extends State<RefundPolicyChips>
             );
           }).toList(),
         ),
-        const SizedBox(height: 5),
+
+        // Expand / Collapse
         if (entries.length > 2)
-          Padding(
-            padding: const EdgeInsets.only(top: 4.0),
-            child: GestureDetector(
-              onTap: () {
-                setState(() {
-                  _expanded = !_expanded;
-                  if (!_expanded) _blinkController.repeat(reverse: true);
-                  else _blinkController.stop();
-                });
-              },
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _expanded = !_expanded;
+                if (!_expanded) _blinkController.repeat(reverse: true);
+                else _blinkController.stop();
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    _expanded ? "Tap to see less" : "Tap to see more",
+                    _expanded ? "See less" : "See all refund slabs",
                     style: GoogleFonts.poppins(
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: widget.design.primaryColor,
                     ),
                   ),
                   const SizedBox(width: 4),
                   FadeTransition(
-                    opacity:
-                    _expanded ? const AlwaysStoppedAnimation(1.0) : _blinkController,
+                    opacity: _expanded
+                        ? const AlwaysStoppedAnimation(1)
+                        : _blinkController,
                     child: RotationTransition(
                       turns: AlwaysStoppedAnimation(_expanded ? 0.5 : 0),
-                      child: const Icon(
-                        Icons.keyboard_arrow_down,
+                      child: Icon(
+                        Icons.keyboard_arrow_down_rounded,
                         size: 20,
                         color: Colors.black54,
                       ),
                     ),
-                  ),
+                  )
                 ],
               ),
             ),
           ),
-        const SizedBox(height: 12),
+
+        const SizedBox(height: 10),
       ],
     );
   }
@@ -1818,6 +2282,7 @@ class __ServiceOverviewCardState extends State<_ServiceOverviewCard> {
             maxPetsAllowed: widget.maxPetsAllowed,
             design: widget.design,
           ),
+
         ],
       ),
     );
@@ -2000,15 +2465,7 @@ class _DetailSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: GoogleFonts.poppins(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF2D3436),
-          ),
-        ),
-        const SizedBox(height: 5),
+
         if (child != null)
           child!
         else
@@ -2028,124 +2485,6 @@ class _DetailSection extends StatelessWidget {
   }
 }
 
-class _RatesSection extends StatelessWidget {
-  final String title;
-  final Map<String, int> rates;
-  final Map<String, int> originalRates;
-  final DesignConstants design;
-  final bool isOfferActive;
-
-  const _RatesSection({
-    Key? key,
-    required this.title,
-    required this.rates,
-    required this.design,
-    required this.originalRates,
-    this.isOfferActive = false,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(20),
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                isOfferActive ? "$title" : title,
-                style: GoogleFonts.poppins(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF2D3436),
-                ),
-              ),
-              if (isOfferActive)
-                Container(
-                  margin: const EdgeInsets.only(left: 8.0),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade600,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    'Offer',
-                    style: GoogleFonts.poppins(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          const Divider(color: Colors.grey),
-          const SizedBox(height: 5),
-          Column(
-            children: rates.entries.map((offerEntry) {
-              final originalPrice = originalRates[offerEntry.key];
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      offerEntry.key,
-                      style: GoogleFonts.poppins(
-                        fontSize: 13,
-                        color: design.textDark,
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        if (isOfferActive && originalPrice != null && originalPrice != offerEntry.value)
-                          Text(
-                            '₹$originalPrice',
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey.shade500,
-                              decoration: TextDecoration.lineThrough,
-                            ),
-                          ),
-                        if (isOfferActive && originalPrice != null && originalPrice != offerEntry.value)
-                          const SizedBox(width: 8),
-                        Text(
-                          '₹${offerEntry.value}',
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: design.primaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class ExpandableText extends StatefulWidget {
   final String text;
@@ -2561,40 +2900,86 @@ class VerifiedBadge extends StatelessWidget {
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      barrierDismissible: true,
+      builder: (_) => Dialog(
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
         ),
-        backgroundColor: Colors.white,
-        title: Text(
-          "MFP Certified",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.w600,
-            color: AppColors.accentColor,
-          ),
-        ),
-        content: Text(
-          message,
-          style: GoogleFonts.poppins(
-            fontSize: 14,
-            color: Colors.grey.shade800,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              "Close",
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.w500,
-                color: AppColors.accentColor,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
               ),
-            ),
+            ],
           ),
-        ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // HEADER ROW WITH ICON + TITLE
+              Row(
+                children: [
+
+                  Expanded(
+                    child: Text(
+                      "MFP Premium",
+                      style: GoogleFonts.poppins(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.black,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 18),
+
+              // MESSAGE BODY
+              Text(
+                message,
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  color: Colors.grey.shade800,
+                  height: 1.5,
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // CLOSE BUTTON
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: TextButton.styleFrom(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  ),
+                  child: Text(
+                    "Close",
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.accentColor,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -2687,21 +3072,23 @@ class ProfileVerified extends StatelessWidget {
     );
   }
 }
-
 class PetPricingTable extends StatefulWidget {
   final bool isOfferActive;
   final List<String> petDocIds;
+
   final Map<String, Map<String, int>> ratesDaily;
   final Map<String, Map<String, int>> walkingRates;
   final Map<String, Map<String, int>> mealRates;
+
   final Map<String, Map<String, int>> offerRatesDaily;
   final Map<String, Map<String, int>> offerWalkingRates;
   final Map<String, Map<String, int>> offerMealRates;
+
   final String? initialSelectedPet;
   final Function(String)? onPetSelected;
 
   const PetPricingTable({
-    Key? key,
+    super.key,
     required this.isOfferActive,
     required this.petDocIds,
     required this.ratesDaily,
@@ -2710,8 +3097,9 @@ class PetPricingTable extends StatefulWidget {
     required this.offerRatesDaily,
     required this.offerWalkingRates,
     required this.offerMealRates,
-    this.initialSelectedPet, this.onPetSelected,
-  }) : super(key: key);
+    this.initialSelectedPet,
+    this.onPetSelected,
+  });
 
   @override
   State<PetPricingTable> createState() => _PetPricingTableState();
@@ -2726,331 +3114,247 @@ class _PetPricingTableState extends State<PetPricingTable> {
     _selectedPet = widget.initialSelectedPet ?? widget.petDocIds.first;
   }
 
-  // ✨ ADDED didUpdateWidget to handle branch switching
   @override
   void didUpdateWidget(covariant PetPricingTable oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // If the initial pet changes (e.g., from branch switch)
-    // or if the available pets change, reset the state.
-    if (oldWidget.initialSelectedPet != widget.initialSelectedPet ||
-        !widget.petDocIds.contains(_selectedPet)) {
+
+    // ✨ FIX: If the parent sends a new pet (from Feeding/Varieties), update local state
+    if (widget.initialSelectedPet != oldWidget.initialSelectedPet &&
+        widget.initialSelectedPet != null) {
       setState(() {
-        _selectedPet = widget.initialSelectedPet ?? widget.petDocIds.first;
+        _selectedPet = widget.initialSelectedPet!;
       });
+    }
+
+    // Safety check (existing logic)
+    if (!widget.petDocIds.contains(_selectedPet)) {
+      if (widget.petDocIds.isNotEmpty) {
+        setState(() {
+          _selectedPet = widget.petDocIds.first;
+        });
+      }
     }
   }
 
-  int _getTotal(int boarding, int walking, int meal) => boarding + walking + meal;
-
-  Widget _buildPriceCell(int standardPrice, int? offerPrice) {
-    if (widget.isOfferActive && offerPrice != null && offerPrice != standardPrice) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '₹$standardPrice',
-            style: GoogleFonts.poppins(
-              fontSize: 13,
-              color: Colors.grey.shade600,
-              decoration: TextDecoration.lineThrough,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '₹$offerPrice',
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: Colors.green.shade700,
-            ),
-          ),
-        ],
-      );
-    }
+  Widget _buildNA() {
     return Text(
-      '₹$standardPrice',
+      "NA",
       style: GoogleFonts.poppins(
-        fontSize: 14,
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w600,
+        color: Colors.grey.shade500,
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    // ✨ SAFETY CHECK: Ensure _selectedPet is valid
-    if (!widget.petDocIds.contains(_selectedPet)) {
-      if (widget.petDocIds.isNotEmpty) {
-        _selectedPet = widget.petDocIds.first;
-      } else {
-        return Container(child: Text("No pricing data available.")); // Handle no pets
-      }
+  Widget _cell(dynamic std, dynamic offer) {
+    if (std == null) return _buildNA();
+
+    if (widget.isOfferActive && offer != null && offer != std) {
+      return Row(
+        children: [
+          Text("₹$std",
+              style: GoogleFonts.poppins(
+                  color: Colors.grey, fontSize: 12, decoration: TextDecoration.lineThrough)),
+          const SizedBox(width: 4),
+          Text("₹$offer",
+              style: GoogleFonts.poppins(
+                  fontSize: 14, color: Colors.green, fontWeight: FontWeight.w600)),
+        ],
+      );
     }
 
-    // ✨ SAFETY CHECK: Ensure maps are not null before accessing keys
-    final ratesDailyForPet = widget.ratesDaily[_selectedPet] ?? {};
-    final walkingRatesForPet = widget.walkingRates[_selectedPet] ?? {};
-    final mealRatesForPet = widget.mealRates[_selectedPet] ?? {};
+    return Text("₹$std",
+        style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500));
+  }
 
-    final offerRatesDailyForPet = widget.offerRatesDaily[_selectedPet] ?? {};
-    final offerWalkingRatesForPet = widget.offerWalkingRates[_selectedPet] ?? {};
-    final offerMealRatesForPet = widget.offerMealRates[_selectedPet] ?? {};
+  @override
+  Widget build(BuildContext context) {
+    final sizes = ["Small", "Medium", "Large", "Giant"];
 
+    final daily = widget.ratesDaily[_selectedPet] ?? {};
+    final walk = widget.walkingRates[_selectedPet] ?? {};
+    final meal = widget.mealRates[_selectedPet] ?? {};
 
-    final sizes = {
-      ...ratesDailyForPet.keys,
-      ...walkingRatesForPet.keys,
-      ...mealRatesForPet.keys
-    }.toList();
+    final dailyOffer = widget.offerRatesDaily[_selectedPet] ?? {};
+    final walkOffer = widget.offerWalkingRates[_selectedPet] ?? {};
+    final mealOffer = widget.offerMealRates[_selectedPet] ?? {};
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  topRight: Radius.circular(12),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "Price Details",
-                    style: GoogleFonts.poppins(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 12),
+
+        Container(
+          // ✨ 1. Combined Outer Container
+          margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade300), // The main border
+          ),
+          child: Column(
+            children: [
+              // -----------------------------------------------------
+              // 🟦 HEADER SECTION (Attached Top)
+              // -----------------------------------------------------
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Compact padding
+                decoration: BoxDecoration(
+                  color: Colors.white, // Subtle header bg
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(11),
+                    topRight: Radius.circular(11),
                   ),
-                  SizedBox(width: 25),
-                  if (widget.isOfferActive)
+                  border: Border(
+                    bottom: BorderSide(color: Colors.grey.shade300), // Divider line
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Per-Day Pricing",
+                        style: GoogleFonts.poppins(
+                            fontSize: 14, // ✨ Smaller font
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87)),
+
+                    // Compact Dropdown
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      height: 28, // ✨ Reduced height
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [AppColors.accentColor, const Color(0xFFD96D0B)],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
+                        color: AppColors.primaryColor.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(6), // ✨ Smaller radius
+                        border: Border.all(color: Colors.black87, width: 0.8),
                       ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.local_offer, color: Colors.white, size: 16),
-                          const SizedBox(width: 4),
-                          Text(
-                            "SPECIAL OFFER",
-                            style: GoogleFonts.poppins(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedPet,
+                          isDense: true,
+                          iconSize: 18,
+                          style: GoogleFonts.poppins(
+                            fontSize: 12, // ✨ Smaller font
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
                           ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            DataTable(
-              columnSpacing: 16,
-              headingRowHeight: 36,
-              dataRowMinHeight: 38,
-              dataRowMaxHeight: 42,
-              border: TableBorder(
-                horizontalInside: BorderSide(color: Colors.grey.shade300, width: 1),
-                verticalInside: BorderSide(color: Colors.grey.shade300, width: 1),
-                top: BorderSide(color: Colors.grey.shade400, width: 1),
-                bottom: BorderSide(color: Colors.grey.shade400, width: 1),
-                left: BorderSide(color: Colors.grey.shade400, width: 1),
-                right: BorderSide(color: Colors.grey.shade400, width: 1),
-              ),
-              columns: [
-                DataColumn(
-                  label: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedPet,
-                        items: widget.petDocIds
-                            .map((petId) => DropdownMenuItem(
-                          value: petId,
-                          child: Text(
-                            petId.capitalize(), // ✨ Capitalize
-                            style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ))
-                            .toList(),
-                        onChanged: (newPet) {
-                          if (newPet != null) {
-                            setState(() {
-                              _selectedPet = newPet;
-                            });
-                            // ✨ MODIFIED: Call the parent callback
-                            widget.onPetSelected?.call(newPet);
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                ...sizes.map(
-                      (size) => DataColumn(
-                    label: Text(
-                      size,
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              rows: [
-                DataRow(
-                  cells: [
-                    DataCell(
-                      Container(
-                        color: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-                        child: Text(
-                          "Boarding",
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                      ),
-                    ),
-                    ...sizes.map((size) {
-                      final standard = ratesDailyForPet[size] ?? 0;
-                      final offer = offerRatesDailyForPet[size] ?? standard;
-                      return DataCell(_buildPriceCell(standard, widget.isOfferActive ? offer : null));
-                    }),
-                  ],
-                ),
-                DataRow(
-                  cells: [
-                    DataCell(
-                      Container(
-                        color: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-                        child: Text(
-                          "Walking",
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                      ),
-                    ),
-                    ...sizes.map((size) {
-                      final standard = walkingRatesForPet[size] ?? 0;
-                      final offer = offerWalkingRatesForPet[size] ?? standard;
-                      return DataCell(_buildPriceCell(standard, widget.isOfferActive ? offer : null));
-                    }),
-                  ],
-                ),
-                DataRow(
-                  cells: [
-                    DataCell(
-                      Container(
-                        color: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-                        child: Text(
-                          "Meal",
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
-                        ),
-                      ),
-                    ),
-                    ...sizes.map((size) {
-                      final standard = mealRatesForPet[size] ?? 0;
-                      final offer = offerMealRatesForPet[size] ?? standard;
-                      return DataCell(_buildPriceCell(standard, widget.isOfferActive ? offer : null));
-                    }),
-                  ],
-                ),
-                DataRow(
-                  color: MaterialStateProperty.resolveWith<Color?>(
-                        (Set<MaterialState> states) => Colors.yellow.shade100,
-                  ),
-                  cells: [
-                    DataCell(
-                      Container(
-                        color: Colors.yellow.shade200,
-                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-                        child: Text(
-                          "Total",
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14),
-                        ),
-                      ),
-                    ),
-                    ...sizes.map((size) {
-                      final boarding = ratesDailyForPet[size] ?? 0;
-                      final walking = walkingRatesForPet[size] ?? 0;
-                      final meal = mealRatesForPet[size] ?? 0;
-                      final oldTotal = boarding + walking + meal;
-
-                      int? newTotal;
-                      if (widget.isOfferActive) {
-                        final offerBoarding = offerRatesDailyForPet[size] ?? boarding;
-                        final offerWalking = offerWalkingRatesForPet[size] ?? walking;
-                        final offerMeal = offerMealRatesForPet[size] ?? meal;
-                        newTotal = offerBoarding + offerWalking + offerMeal;
-                      }
-
-                      if (widget.isOfferActive && newTotal != null && newTotal != oldTotal) {
-                        return DataCell(
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                '₹$oldTotal',
+                          items: widget.petDocIds.map((id) {
+                            return DropdownMenuItem(
+                              value: id,
+                              child: Text(
+                                id.capitalize(),
                                 style: GoogleFonts.poppins(
                                   fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                  decoration: TextDecoration.lineThrough,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
                                 ),
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '₹$newTotal',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green.shade700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      return DataCell(
-                        Text(
-                          '₹$oldTotal',
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 13),
+                            );
+                          }).toList(),
+                          onChanged: (v) {
+                            setState(() => _selectedPet = v!);
+                            widget.onPetSelected?.call(v!);
+                          },
+                          dropdownColor: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                      );
-                    }),
+                      ),
+                    ),
                   ],
                 ),
-              ],
-            )
-          ],
+              ),
+
+              // -----------------------------------------------------
+              // 📊 TABLE SECTION (Attached Bottom)
+              // -----------------------------------------------------
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 22, // ✨ Tighter spacing
+                  headingRowHeight: 38, // ✨ Shorter header
+                  dataRowMinHeight: 40, // ✨ Shorter rows
+                  dataRowMaxHeight: 44,
+
+                  // ✨ Restored Grid Lines like before
+                  border: TableBorder(
+                    horizontalInside: BorderSide(color: Colors.grey.shade200, width: 1),
+                    verticalInside: BorderSide(color: Colors.grey.shade200, width: 1),
+                    bottom: BorderSide.none,
+                    top: BorderSide.none,
+                    left: BorderSide.none,
+                    right: BorderSide.none,
+                  ),
+
+                  headingTextStyle: GoogleFonts.poppins(
+                    fontSize: 13, // ✨ Smaller
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+
+                  dataTextStyle: GoogleFonts.poppins(
+                    fontSize: 12.5, // ✨ Smaller
+                    color: Colors.black87,
+                  ),
+
+                  columns: [
+                    const DataColumn(label: Text("Type")),
+                    ...sizes.map((s) => DataColumn(label: Text(s))),
+                  ],
+
+                  rows: [
+                    // Boarding
+                    DataRow(
+                      cells: [
+                        DataCell(Text("Boarding", style: GoogleFonts.poppins(fontWeight: FontWeight.w600))),
+                        ...sizes.map((s) => DataCell(_cell(daily[s], dailyOffer[s]))),
+                      ],
+                    ),
+                    // Walking
+                    DataRow(
+                      cells: [
+                        DataCell(Text("Walking", style: GoogleFonts.poppins(fontWeight: FontWeight.w600))),
+                        ...sizes.map((s) => DataCell(_cell(walk[s], walkOffer[s]))),
+                      ],
+                    ),
+                    // Meal
+                    DataRow(
+                      cells: [
+                        DataCell(Text("Meal", style: GoogleFonts.poppins(fontWeight: FontWeight.w600))),
+                        ...sizes.map((s) => DataCell(_cell(meal[s], mealOffer[s]))),
+                      ],
+                    ),
+                    // ⭐ TOTAL ROW (Kept Yellow)
+                    DataRow(
+                      color: MaterialStateProperty.all(Colors.yellow.shade100),
+                      cells: [
+                        DataCell(Text("Total", style: GoogleFonts.poppins(fontWeight: FontWeight.w800, fontSize: 13))),
+                        ...sizes.map((s) {
+                          final b = daily[s];
+                          final w = walk[s];
+                          final m = meal[s];
+
+                          if (b == null || w == null || m == null) {
+                            return DataCell(_buildNA());
+                          }
+                          return DataCell(
+                            Text(
+                              "₹${b + w + m}",
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -3247,7 +3551,7 @@ class _PetVarietiesTableState extends State<PetVarietiesTable>
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0), // ✨ Match padding
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: Colors.black87),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -3255,8 +3559,13 @@ class _PetVarietiesTableState extends State<PetVarietiesTable>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: const BorderRadius.only(
+              color: Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.grey.shade300, // subtle bottom line
+                  width: 1,
+                ),
+              ),              borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(12),
                 topRight: Radius.circular(12),
               ),
@@ -3275,9 +3584,9 @@ class _PetVarietiesTableState extends State<PetVarietiesTable>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
+                    color: AppColors.primaryColor.withOpacity(0.5),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey.shade400),
+                    border: Border.all(color: Colors.black87),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
@@ -3380,6 +3689,7 @@ class _PetVarietiesTableState extends State<PetVarietiesTable>
                 : CrossFadeState.showFirst,
             duration: const Duration(milliseconds: 200),
           ),
+
         ],
       ),
     );
@@ -3510,6 +3820,7 @@ class _ExpandableChipListState extends State<ExpandableChipList> {
               ),
             ),
           ),
+
       ],
     );
   }
@@ -3622,7 +3933,6 @@ void _showHideConfirmationDialog(
     },
   );
 }
-
 class _SimpleMealCard extends StatelessWidget {
   final String mealTitle;
   final Map<String, dynamic> mealData;
@@ -3638,59 +3948,100 @@ class _SimpleMealCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = mealData['image'] as String?;
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 2,
-      child: InkWell(
-        onTap: () => onDetailsPressed(context, mealTitle, mealData),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  color: Colors.grey.shade100,
-                  child: (imageUrl != null && imageUrl.isNotEmpty)
-                      ? CachedNetworkImage( // ✨ Use CachedNetworkImage
-                    imageUrl: imageUrl,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(color: Colors.grey.shade100),
-                    errorWidget: (context, url, error) => const Icon(Icons.restaurant_outlined, color: Colors.grey),
-                  )
-                      : const Icon(Icons.restaurant_outlined, color: Colors.grey),
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,         // ✔ FULL WHITE BG
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04), // soft shadow effect
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          )
+        ],
+      ),
+      child: Material(
+        color: Colors.white,         // ✔ WHITE MATERIAL (ripple stays clean)
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => onDetailsPressed(context, mealTitle, mealData),
+          child: Padding(
+            padding: const EdgeInsets.all(14.0),
+            child: Row(
+              children: [
+                // 🍽 White image box
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 82,
+                    height: 82,
+                    color: Colors.white,     // ✔ WHITE IMAGE BG
+                    child: (imageUrl != null && imageUrl.isNotEmpty)
+                        ? CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) =>
+                          Container(color: Colors.white),
+                      errorWidget: (context, url, error) =>
+                      const Icon(Icons.restaurant_outlined,
+                          color: Colors.grey),
+                    )
+                        : const Icon(Icons.restaurant_outlined,
+                        color: Colors.grey, size: 30),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      mealTitle.capitalize(),
-                      style: GoogleFonts.poppins(fontSize: 17, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "Tap to see details",
-                      style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey.shade600),
-                    ),
-                  ],
+
+                const SizedBox(width: 16),
+
+                // 📝 Text Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        mealTitle.capitalize(),
+                        style: GoogleFonts.poppins(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+
+                      Row(
+                        children: [
+                          Icon(Icons.info_outline,
+                              size: 14, color: Colors.grey.shade600),
+                          const SizedBox(width: 4),
+                          Text(
+                            "Tap to see details",
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const Icon(Icons.chevron_right, color: Colors.grey),
-            ],
+
+                const SizedBox(width: 4),
+
+                Icon(Icons.chevron_right_rounded,
+                    size: 26, color: Colors.grey.shade500),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 }
+
 
 class FeedingInfoButton extends StatelessWidget {
   final Map<String, Map<String, dynamic>> allFeedingDetails;
@@ -3835,118 +4186,245 @@ class FeedingInfoButton extends StatelessWidget {
   Widget _buildFeedingInfo(Map<String, dynamic> feedingDetails) {
     if (feedingDetails.isEmpty) {
       return Center(
-        child: Text(
-          "No feeding information provided for this pet.",
-          style: GoogleFonts.poppins(color: Colors.grey.shade600),
+        child: Padding(
+          padding: const EdgeInsets.only(top: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.pets, size: 40, color: Colors.grey.shade400),
+              const SizedBox(height: 12),
+              Text(
+                "No feeding information available.",
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     const desiredOrder = [
-      'Morning Meal (Breakfast)', 'Afternoon Meal (Lunch)', 'Evening Meal (Dinner)', 'Treats', 'Water Availability'
+      'Morning Meal (Breakfast)',
+      'Afternoon Meal (Lunch)',
+      'Evening Meal (Dinner)',
+      'Treats',
+      'Water Availability',
     ];
 
+    // Sort feeding sections cleanly
     final mealEntries = feedingDetails.entries.toList()
       ..sort((a, b) {
-        final aIndex = desiredOrder.indexWhere((name) => name.toLowerCase() == a.key.toLowerCase());
-        final bIndex = desiredOrder.indexWhere((name) => name.toLowerCase() == b.key.toLowerCase());
+        final aIndex = desiredOrder.indexWhere(
+                (name) => name.toLowerCase() == a.key.toLowerCase());
+        final bIndex = desiredOrder.indexWhere(
+                (name) => name.toLowerCase() == b.key.toLowerCase());
         return (aIndex == -1 ? desiredOrder.length : aIndex)
             .compareTo(bIndex == -1 ? desiredOrder.length : bIndex);
       });
 
     return ListView.builder(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       itemCount: mealEntries.length,
       itemBuilder: (context, index) {
         final entry = mealEntries[index];
-        final mealData = entry.value as Map<String, dynamic>? ?? {}; // ✨ Safety check
-        return _SimpleMealCard(
-          mealTitle: entry.key,
-          mealData: mealData,
-          onDetailsPressed: _showMealDetailsDialog,
+        final mealData = entry.value as Map<String, dynamic>? ?? {};
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 🍽 Section Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+              child: Text(
+                entry.key,
+                style: GoogleFonts.poppins(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+            ),
+
+            // Meal Card (full white upgraded)
+            _SimpleMealCard(
+              mealTitle: entry.key,
+              mealData: mealData,
+              onDetailsPressed: _showMealDetailsDialog,
+            ),
+
+            const SizedBox(height: 2),
+          ],
         );
       },
     );
   }
 
-  void _showMealDetailsDialog(BuildContext context, String mealTitle, Map<String, dynamic> mealData) {
-    final details = <Widget>[];
 
-    IconData getIconForDetail(String fieldName) {
-      switch (fieldName) {
-        case 'food_title': return Icons.label_outline;
+  void _showMealDetailsDialog(
+      BuildContext context,
+      String mealTitle,
+      Map<String, dynamic> mealData,
+      ) {
+    IconData getIcon(String field) {
+      switch (field) {
+        case 'food_title': return Icons.fastfood_outlined;
         case 'food_type': return Icons.category_outlined;
         case 'brand': return Icons.storefront_outlined;
-        case 'ingredients': return Icons.list_alt_outlined;
+        case 'ingredients': return Icons.list_alt_rounded;
         case 'quantity_grams': return Icons.scale_outlined;
-        case 'feeding_time': return Icons.access_time_outlined;
+        case 'feeding_time': return Icons.access_time_filled;
         default: return Icons.info_outline;
       }
     }
 
-    String getLabel(String fieldName) {
-      if (fieldName == 'food_title') return 'Meal Name';
-      return fieldName.replaceAll('_', ' ').capitalize();
+    String getLabel(String field) {
+      if (field == 'food_title') return "Meal Name";
+      return field.replaceAll("_", " ").capitalize();
     }
 
-    for (var entry in mealData.entries) {
-      if (entry.key == 'image') continue;
-      final value = entry.value;
-      final isValueMissing = value == null || (value is String && value.isEmpty) || (value is List && value.isEmpty);
-      details.add(Padding(
-        padding: const EdgeInsets.only(top: 10.0),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(getIconForDetail(entry.key), color: Colors.grey.shade600, size: 18),
-          const SizedBox(width: 12),
-          Expanded(
-            child: RichText(
-              text: TextSpan(
-                style: GoogleFonts.poppins(color: Colors.black87, fontSize: 13),
+    // 🔥 Detail row widget with better UI
+    Widget detailRow(String label, String value, IconData icon) {
+      final isNA = value.isEmpty;
+
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: Colors.grey.shade200),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 18, color: Colors.grey.shade700),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextSpan(text: "${getLabel(entry.key)}: ", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-                  TextSpan(
-                    text: isValueMissing ? "N/A" : (value is List ? value.join(', ') : value.toString()),
+                  Text(
+                    label,
                     style: GoogleFonts.poppins(
-                        color: isValueMissing ? Colors.grey.shade500 : Colors.grey.shade800,
-                        fontStyle: isValueMissing ? FontStyle.italic : FontStyle.normal),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    isNA ? "N/A" : value,
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: isNA ? Colors.grey.shade500 : Colors.black87,
+                      fontStyle: isNA ? FontStyle.italic : FontStyle.normal,
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
-        ]),
-      ));
+          ],
+        ),
+      );
     }
+
+    final List<Widget> detailWidgets = [];
+
+    mealData.forEach((key, value) {
+      if (key == "image") return;
+
+      final cleanValue = (value == null ||
+          (value is String && value.trim().isEmpty) ||
+          (value is List && value.isEmpty))
+          ? ""
+          : value is List
+          ? value.join(", ")
+          : value.toString();
+
+      detailWidgets.add(detailRow(
+        getLabel(key),
+        cleanValue,
+        getIcon(key),
+      ));
+    });
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(mealTitle.capitalize(), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (mealData['image'] != null && (mealData['image'] as String).isNotEmpty)
-              ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: CachedNetworkImage( // ✨ Use CachedNetworkImage
-                    imageUrl: mealData['image'],
-                    width: double.infinity,
-                    height: 180,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(height: 180, color: Colors.grey.shade200),
-                    errorWidget: (context, url, error) => Container(height: 180, color: Colors.grey.shade200, child: Icon(Icons.error)),
-                  )
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 🖼️ Image Header
+              if (mealData['image'] != null &&
+                  (mealData['image'] as String).isNotEmpty)
+                CachedNetworkImage(
+                  imageUrl: mealData['image'],
+                  height: 180,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 🔥 Title
+                    Text(
+                      mealTitle.capitalize(),
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Details Body
+                    detailWidgets.isEmpty
+                        ? Text(
+                      "No details available.",
+                      style: GoogleFonts.poppins(
+                          color: Colors.grey.shade500, fontSize: 13),
+                    )
+                        : Column(children: detailWidgets),
+                  ],
+                ),
               ),
-            if (mealData['image'] != null && (mealData['image'] as String).isNotEmpty) const SizedBox(height: 12),
-            ...details.isNotEmpty ? details : [Text("No details to show.", style: GoogleFonts.poppins(color: Colors.grey.shade600))]
-          ]),
+
+              // CLOSE BUTTON
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    "Close",
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+              )
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text("Close", style: GoogleFonts.poppins(color: Colors.black87))),
-        ],
       ),
     );
   }
+
 }
