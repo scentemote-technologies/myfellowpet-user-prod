@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../app_colors.dart';
@@ -493,7 +494,9 @@ class BoardingHomepage extends StatefulWidget {
 
 class _BoardingHomepageState extends State<BoardingHomepage> with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _locationPermissionDenied = false;
+
   bool _showOffersOnly = false; // New state variable
+  StreamSubscription<Position>? _positionSubscription;
   List<String> pets = [];
   final FocusNode _searchFocusNode = FocusNode();
 
@@ -800,7 +803,7 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
     _filterScrollController = ScrollController();
 
     _loadPriceFilter();
-    _fetchCurrentLocation();
+    _startLocationListening();
     _fetchPetTypes();
 
     if (widget.initialSearchFocus) {
@@ -850,7 +853,7 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
 
   // lib/screens/Boarding/boarding_homepage.dart
 
-  Future<void> _fetchCurrentLocation() async {
+  /*Future<void> _fetchCurrentLocation() async {
     try {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
@@ -890,6 +893,60 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
       if(mounted) setState(() => _locationPermissionDenied = true);
       _startFiltering(); // Still filter the cards, just without distance
     }
+  }*/
+  // lib/screens/Boarding/boarding_homepage.dart
+
+  Future<void> _startLocationListening() async {
+    // 1. Cancel previous subscription to prevent duplicates
+    await _positionSubscription?.cancel();
+
+    // 2. Check Permissions and Services
+    LocationPermission permission = await Geolocator.checkPermission();
+    bool isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+
+    // Handle Denied/Disabled states
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever ||
+        !isServiceEnabled) {
+      if (mounted) {
+        setState(() => _locationPermissionDenied = true);
+      }
+      // Still call filter even if denied, to show un-filtered data
+      _startFiltering();
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _locationPermissionDenied = false); // Location is working
+    }
+
+    // 3. Start Stream Listener
+    _positionSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 50, // Only update if moved > 50 meters
+      ),
+    ).listen(
+          (Position position) {
+        // Stream Listener fires whenever a new position is available.
+        if (mounted) {
+          setState(() {
+            _currentPosition = position;
+          });
+
+          // 4. CRITICAL: Recalculate Distances and Re-filter
+          context.read<BoardingCardsProvider>().recalculateCardDistances(position);
+          _startFiltering();
+        }
+      },
+      onError: (e) {
+        // Handle any stream errors (e.g., location timeout)
+        if (mounted) {
+          setState(() => _locationPermissionDenied = true);
+        }
+        _startFiltering();
+      },
+    );
   }
 
   Future<void> toggleLike(String serviceId) async {
@@ -1176,13 +1233,14 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       // When the app resumes (e.g., from settings), re-check the location.
-      _fetchCurrentLocation();
+      _startLocationListening();
     }
   }
 
 
   @override
   void dispose() {
+    _positionSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this); // ⬅️ Unregister observer
     _tabController.dispose();
     _timer.cancel();
@@ -2772,6 +2830,30 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
     }
   }
 
+  void showFullWhiteLoader(BuildContext context) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Loading',
+      barrierColor: Colors.white,
+      useRootNavigator: true,
+      pageBuilder: (_, __, ___) {
+        return Container(
+          color: Colors.white,
+          child: Center(
+            child: SizedBox(
+              width: 180,
+              height: 180,
+              child: Lottie.asset('assets/Loaders/App_Loader.json'),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -2808,8 +2890,15 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
                 : BorderSide.none,
           ),
           child: InkWell(
-            onTap: () {
-              Navigator.push(
+            onTap: () async {
+              // 1️⃣ Show loader ON ROOT NAVIGATOR
+              showFullWhiteLoader(context);
+
+              // Give time for loader UI to mount
+              await Future.delayed(const Duration(milliseconds: 50));
+
+              // 2️⃣ Navigate using NORMAL navigator
+              await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => BoardingServiceDetailPage(
@@ -2830,7 +2919,12 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
                   ),
                 ),
               );
+
+              // 3️⃣ REMOVE LOADER ON ROOT NAVIGATOR
+              Navigator.of(context, rootNavigator: true).pop();
             },
+
+
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -3054,12 +3148,65 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
                                 ),
                               ),
                               const SizedBox(height: 3),
-                              Text(
-                                // dKm is 0.0 if not fetched, and double.infinity if error/no location
-                                dKm.isInfinite || dKm == 0.0 // Check for both
-                                    ? 'Location services disabled. Enable to view'
-                                    : '${dKm.toStringAsFixed(1)} km away',
-                                style: const TextStyle(fontSize: 9),
+
+                              // Replace the existing single Text widget that displays dKm with this Row:
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.center, // Crucial for vertical alignment
+                                children: [
+                                  Text(
+                                    // dKm is 0.0 if not fetched, and double.infinity if error/no location
+                                    dKm.isInfinite || dKm == 0.0 // Check for both
+                                        ? 'Location services disabled. Enable to view'
+                                        : '${dKm.toStringAsFixed(1)} km away',
+                                    style: const TextStyle(fontSize: 9),
+                                  ),
+
+                                  // 🚨 STABILITY FIX: Reserve space for the button regardless of its visibility
+                                  SizedBox(
+                                    width: 24, // Fixed width
+                                    height: 16, // Fixed height (to match text height)
+                                    child: Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(left: 4.0),
+                                        child: (dKm.isInfinite || dKm == 0.0)
+                                            ? IconButton(
+                                          onPressed: () async {
+                                            // Check current status
+                                            LocationPermission permissionStatus = await Geolocator.checkPermission();
+
+                                            // 1. Try requesting permission (this shows the native dialog if possible)
+                                            if (permissionStatus == LocationPermission.denied) {
+                                              permissionStatus = await Geolocator.requestPermission();
+                                            }
+
+                                            // 2. After attempting request, if still denied, show the manual dialog.
+                                            if (permissionStatus == LocationPermission.deniedForever ||
+                                                permissionStatus == LocationPermission.denied) {
+
+                                              // Call the responsive dialog we just defined
+                                              _showManualPermissionDialog(context);
+
+                                            } else if (permissionStatus == LocationPermission.whileInUse ||
+                                                permissionStatus == LocationPermission.always) {
+                                              // Permission was granted, show success snackbar (listener handles distance update)
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('Location access granted! Refreshing distances...'),
+                                                  duration: Duration(seconds: 2),
+                                                ),
+                                              );
+                                            }
+                                          }, // End onPressed
+                                          icon: Icon(Icons.refresh, size: 14, color: Colors.red.shade700),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                        )
+                                            : const SizedBox.shrink(), // Show an empty box if location is working
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -3136,6 +3283,8 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
     );
   }
 
+
+
   // 🛠️ NEW WIDGET: Replaces the outer Positioned more_vert menu
   Widget _FloatingMenuContainer({required String serviceId}) {
     return Container(
@@ -3169,6 +3318,172 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
           );
         },
       ),
+    );
+  }
+  // lib/screens/Boarding/boarding_homepage.dart (Add this new dialog function near line 160, before class definitions)
+
+  void _showManualPermissionDialog(BuildContext context) {
+    // Define colors and responsiveness based on your AppColors/GoogleFonts usage
+    const Color primaryColor = Color(0xFF25ADAD);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(20, 25, 20, 15),
+              width: isSmallScreen ? screenWidth * 0.85 : 400,
+
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+
+                  // 1. Header and Icon
+                  Row(
+                    children: [
+                      Icon(Icons.location_off, color: Colors.red.shade700, size: isSmallScreen ? 24 : 28),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "Location Access Required",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w700,
+                            fontSize: isSmallScreen ? 17 : 20,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const Divider(height: 25),
+
+                  // 2. Main Content and Instruction
+                  Text(
+                    "We need your location to accurately calculate distances to services.",
+                    style: GoogleFonts.poppins(
+                      fontSize: isSmallScreen ? 14 : 15,
+                      color: Colors.grey.shade700,
+                      height: 1.5,
+                    ),
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  // lib/screens/Boarding/boarding_homepage.dart (Inside _showManualPermissionDialog)
+
+// 3. Highlighted Manual Instruction
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.warning_amber_rounded, size: isSmallScreen ? 18 : 20, color: Colors.red.shade700),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.poppins(
+                                fontSize: isSmallScreen ? 13 : 14,
+                                color: Colors.black87,
+                                height: 1.4,
+                              ),
+                              children: [
+
+                                // Title
+                                TextSpan(
+                                  text: "Permission Denied:\n",
+                                  style: GoogleFonts.poppins(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.red.shade700,
+                                  ),
+                                ),
+
+                                // 👇 ADD THIS for a blank line
+                                const TextSpan(text: "\n"),
+
+                                // Explanation
+                                const TextSpan(
+                                  text:
+                                  "You have permanently denied location access. \n\n",
+                                ),
+                                // Explanation
+                                const TextSpan(
+                                  text:
+                                  "The app is blocked from showing the permission request again.\n\n",
+                                ),
+
+
+
+
+                                // Second paragraph
+                                const TextSpan(
+                                  text:
+                                  "Please go to your device settings to manually enable location access for MyFellowPet.",
+                                ),
+                              ],
+                            ),
+
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // 4. Action Buttons (Right Aligned)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: Text(
+                          "Close",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 14 : 15,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 12 : 16, vertical: isSmallScreen ? 10 : 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: Text(
+                          "OK, I Understand",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 14 : 15,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

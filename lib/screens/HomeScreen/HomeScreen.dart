@@ -1030,6 +1030,7 @@ class _ActiveOrderBannerState extends State<ActiveOrderBanner> with SingleTicker
   }
 
   // ✨ UPDATED: _buildExpandedBanner for better responsiveness and styling
+  // ✨ UPDATED: _buildExpandedBanner for better responsiveness and styling
   Widget _buildExpandedBanner(List<QueryDocumentSnapshot> ongoingDocs) {
     final firstDoc = ongoingDocs.first;
     final totalOngoingOrders = ongoingDocs.length;
@@ -1088,183 +1089,188 @@ class _ActiveOrderBannerState extends State<ActiveOrderBanner> with SingleTicker
 
     return Container(
       key: const ValueKey('expanded_banner'),
-      padding: const EdgeInsets.all(16), // Increased padding
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16), // Increased margin
+      padding: const EdgeInsets.all(16), // Padding remains here
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20), // More rounded corners
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.primary, width: 3),
         boxShadow: const [
           BoxShadow(
               color: Colors.black38, blurRadius: 15, offset: Offset(0, 5))
-        ], // Stronger shadow
+        ],
       ),
       child: Stack(children: [
         Padding(
           padding: const EdgeInsets.only(right: 32.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // --- ROW 1: Title and Shop Info ---
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: SingleChildScrollView( // ⬅️ STABILITY FIX 1: Allows scrolling if height exceeds bounds
+            physics: const ClampingScrollPhysics(),
+            child: IntrinsicHeight( // ⬅️ STABILITY FIX 2: Helps Column determine min height correctly
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-
+                  // --- ROW 1: Title and Shop Info (Tighter Font) ---
                   Row(
-                      children: [
-                    Text(shopName,
-                        style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w500),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1),
-                    const SizedBox(width: 8),
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundImage: shopImageUrl.isNotEmpty
-                          ? CachedNetworkImageProvider(shopImageUrl)
-                          : null,
-                      backgroundColor: Colors.grey.shade200,
-                      child: shopImageUrl.isEmpty
-                          ? const Icon(Icons.storefront,
-                          size: 16, color: Colors.grey)
-                          : null,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(shopName,
+                            style: GoogleFonts.poppins(
+                                fontSize: 12, // Reduced size
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1),
+                      ),
+                      const SizedBox(width: 8),
+                      CircleAvatar(
+                        radius: 14, // Reduced size
+                        backgroundImage: shopImageUrl.isNotEmpty
+                            ? CachedNetworkImageProvider(shopImageUrl)
+                            : null,
+                        backgroundColor: Colors.grey.shade200,
+                        child: shopImageUrl.isEmpty
+                            ? const Icon(Icons.storefront,
+                            size: 14, color: Colors.grey)
+                            : null,
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 16), // Reduced height
+
+                  // --- ROW 2: Pet Avatar and Name ---
+                  Row(children: [
+                    if (petImages.isNotEmpty)
+                      _buildOverlappingPetAvatars(petImages)
+                    else
+                      _buildNoPetIndicator(),
+                    const SizedBox(width: 10), // Reduced spacing
+                    Expanded(
+                        child: Text(petDisplayName,
+                            style: GoogleFonts.poppins(
+                                fontSize: 15, // Reduced size
+                                color: Colors.black,
+                                fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis)),
+                  ]),
+
+                  const SizedBox(height: 12), // Reduced spacing
+
+                  // --- ROW 3: Status and Day Count (Tighter Font/Padding) ---
+                  Row(children: [
+                    Expanded(
+                        child: Container(
+                          padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 5), // Reduced padding
+                          decoration: BoxDecoration(
+                              color: AppColors.primaryColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(20)), // Slightly less rounded
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(statusIcon,
+                                color: AppColors.primaryColor, size: 14), // Reduced size
+                            const SizedBox(width: 6), // Reduced spacing
+                            Flexible(
+                                child: Text(statusText,
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 11, // Reduced size
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.primaryColor))),
+                          ]),
+                        )),
+                    if (totalDays > 0) ...[
+                      const SizedBox(width: 8), // Reduced spacing
+                      Container(
+                        padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 5), // Reduced padding
+                        decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(20)),
+                        child: Text('Day $currentDay of $totalDays',
+                            style: GoogleFonts.poppins(
+                                fontSize: 11, // Reduced size
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade700)),
+                      )
+                    ]
+                  ]),
+
+                  // --- Progress Bar ---
+                  if (totalDays > 1) ...[
+                    const SizedBox(height: 10), // Reduced spacing
+                    ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: LinearProgressIndicator(
+                            value: currentDay / totalDays,
+                            backgroundColor: Colors.grey.shade200,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                AppColors.primaryColor),
+                            minHeight: 6)) // Reduced height
+                  ],
+
+                  // --- Multi-Order Indicator ---
+                  if (totalOngoingOrders > 1) ...[
+                    const SizedBox(height: 12), // Reduced spacing
+                    GestureDetector(
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => AllActiveOrdersPage(docs: ongoingDocs))),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 10), // Reduced vertical padding
+                        decoration: BoxDecoration(
+                          color: AppColors.accentColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10), // Reduced radius
+                          border: Border.all(color: AppColors.accentColor),
+                        ),
+                        child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text('View all ${totalOngoingOrders} active bookings',
+                                  style: GoogleFonts.poppins(
+                                      color: AppColors.accentColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12)), // Reduced size
+                              const SizedBox(width: 6), // Reduced spacing
+                              const Icon(Icons.arrow_forward_ios,
+                                  size: 12, color: AppColors.accentColor) // Reduced size
+                            ]),
+                      ),
                     )
-                  ])
+                  ],
+                  // --- Pickup Message ---
+                  if (pickupMessage != null && totalOngoingOrders == 1) ...[
+                    const SizedBox(height: 12), // Reduced spacing
+                    Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8), // Reduced padding
+                        decoration: BoxDecoration(
+                            color: Colors.yellow.shade50,
+                            borderRadius: BorderRadius.circular(10), // Reduced radius
+                            border: Border.all(color: Colors.yellow.shade300)),
+                        child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.warning_amber_rounded,
+                                  color: Colors.amber.shade700, size: 16), // Reduced size
+                              const SizedBox(width: 6), // Reduced spacing
+                              Flexible(
+                                child: Text(pickupMessage,
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 11, // Reduced size
+                                        color: Colors.black87,
+                                        fontWeight: FontWeight.w500)),
+                              )
+                            ]))
+                  ],
+                  // Add a small spacer at the bottom to ensure the scroll view has space
+                  const SizedBox(height: 4),
                 ],
               ),
-              const Divider(height: 20),
-
-              // --- ROW 2: Pet Avatar and Name ---
-              Row(children: [
-                if (petImages.isNotEmpty)
-                  _buildOverlappingPetAvatars(petImages)
-                else
-                  _buildNoPetIndicator(),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: Text(petDisplayName,
-                        style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            color: Colors.black,
-                            fontWeight: FontWeight.w600),
-                        overflow: TextOverflow.ellipsis)),
-              ]),
-
-              const SizedBox(height: 16),
-
-              // --- ROW 3: Status and Day Count ---
-              Row(children: [
-                Expanded(
-                    child: Container(
-                      padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                          color: AppColors.primaryColor.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(25)),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(statusIcon,
-                            color: AppColors.primaryColor, size: 16),
-                        const SizedBox(width: 8),
-                        Flexible(
-                            child: Text(statusText,
-                                style: GoogleFonts.poppins(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.primaryColor))),
-                      ]),
-                    )),
-                if (totalDays > 0) ...[
-                  const SizedBox(width: 12),
-                  Container(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(25)),
-                    child: Text('Day $currentDay of $totalDays',
-                        style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade700)),
-                  )
-                ]
-              ]),
-
-              // --- Progress Bar ---
-              if (totalDays > 1) ...[
-                const SizedBox(height: 12),
-                ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: LinearProgressIndicator(
-                        value: currentDay / totalDays,
-                        backgroundColor: Colors.grey.shade200,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                            AppColors.primaryColor),
-                        minHeight: 8))
-              ],
-
-              // --- Multi-Order Indicator ---
-              if (totalOngoingOrders > 1) ...[
-                const SizedBox(height: 16),
-                GestureDetector(
-                  onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => AllActiveOrdersPage(docs: ongoingDocs))),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppColors.accentColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.accentColor),
-                    ),
-                    child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text('View all ${totalOngoingOrders} active bookings',
-                              style: GoogleFonts.poppins(
-                                  color: AppColors.accentColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14)),
-                          const SizedBox(width: 8),
-                          const Icon(Icons.arrow_forward_ios,
-                              size: 14, color: AppColors.accentColor)
-                        ]),
-                  ),
-                )
-              ],
-              // --- Pickup Message ---
-              if (pickupMessage != null && totalOngoingOrders == 1) ...[
-                const SizedBox(height: 16),
-                Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                        color: Colors.yellow.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.yellow.shade300)),
-                    child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.warning_amber_rounded,
-                              color: Colors.amber.shade700, size: 18),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(pickupMessage,
-                                style: GoogleFonts.poppins(
-                                    fontSize: 13,
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.w500)),
-                          )
-                        ]))
-              ]
-            ],
+            ),
           ),
         ),
         // --- Collapse Button ---

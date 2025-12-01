@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:lottie/lottie.dart';
 
 import '../../app_colors.dart';
 import '../Boarding/OpenCloseBetween.dart';
@@ -2165,88 +2166,123 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
           child: InkWell(
             borderRadius: BorderRadius.circular(10),
             // [Inside _buildOrderCard]
+            // [Inside _buildOrderCard]
             onTap: () async {
-              // 1. Get the BOOKING document (still good for fresh subcollection data)
-              final bookingDoc = await order.doc.reference.get();
-              if (!bookingDoc.exists) return;
-
-              final data = bookingDoc.data() as Map<String, dynamic>;
-
-              // --- 2. GET THE ADDRESS *DIRECTLY* FROM THE BOOKING DOC ---
-              // We use 'data' to ensure it's the fresh copy, not the stale stream copy
-              final fullAddress = data['full_address'] as String? ?? 'Address not found';
-              print('DEBUG: Retrieved full_address from booking: $fullAddress');
-
-              // --- 3. Get all other data from the BOOKING doc ---
-              final serviceId = data['service_id'] as String?;
-              final costBreakdown =
-                  data['cost_breakdown'] as Map<String, dynamic>? ?? {};
-
-              // ✅ Use total costs saved in the document's breakdown (CRITICAL for resume)
-              final foodCost =
-                  double.tryParse(costBreakdown['meals_cost']?.toString() ?? '0') ?? 0.0;
-              final walkingCost =
-                  double.tryParse(costBreakdown['daily_walking_cost']?.toString() ?? '0') ?? 0.0;
-              final boardingCost =
-                  double.tryParse(costBreakdown['boarding_cost']?.toString() ?? '0') ?? 0.0;
-
-              final transportCost =
-                  double.tryParse(data['transport_cost']?.toString() ?? '0') ?? 0.0;
-
-
-              final petIds = List<String>.from(data['pet_id'] ?? []);
-              final mealRates = Map<String, int>.from(data['mealRates'] ?? {});
-              final walkingRates =
-              Map<String, int>.from(data['walkingRates'] ?? {});
-              final dailyRates =
-              Map<String, int>.from(data['rates_daily'] ?? {});
-
-              final spLocation =
-                  data['sp_location'] as GeoPoint? ?? const GeoPoint(0, 0);
-
-              // 4. Fetch perDayServices from the subcollection
-              final Map<String, Map<String, dynamic>> perDayServices = {};
-              final petServicesSnapshot =
-              await bookingDoc.reference.collection('pet_services').get();
-              for (var petDoc in petServicesSnapshot.docs) {
-                perDayServices[petDoc.id] = petDoc.data();
-              }
-
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ConfirmationPage(
-                    gstRegistered: data['gstRegistered'] ?? false,
-                    checkoutEnabled: data['checkoutEnabled'] ?? false,
-                    boarding_rate: boardingCost,
-                    perDayServices: perDayServices,
-                    petIds: petIds,
-                    foodCost: foodCost,
-                    walkingCost: walkingCost,
-                    transportCost: transportCost,
-                    mealRates: mealRates,
-                    dailyRates: dailyRates,
-                    walkingRates: walkingRates,
-                    fullAddress: fullAddress, // <-- This now works!
-                    sp_location: spLocation,
-                    buildOpenHoursWidget:
-                    buildOpenHoursWidget(openTime, closeTime, dates),
-                    shopName: order.shopName,
-                    shopImage: order.shopImage,
-                    selectedDates: dates,
-                    totalCost: totalCost,
-                    petNames: petNamesList,
-                    openTime: openTime,
-                    closeTime: closeTime,
-                    bookingId: order.doc.id,
-                    sortedDates: sortedDates,
-                    petImages: petImages,
-                    serviceId: serviceId ?? '', // Pass the serviceId
-                    fromSummary: false,
-                    petCostBreakdown: petCostBreakdown,
-                  ),
-                ),
+              // ---------------------------------------------------------
+              // 1. SHOW LOADER DIALOG
+              // ---------------------------------------------------------
+              showGeneralDialog(
+                context: context,
+                barrierDismissible: false,
+                barrierLabel: 'Loading',
+                barrierColor: Colors.white,  // FULL WHITE BACKGROUND
+                pageBuilder: (context, _, __) {
+                  return Container(
+                    color: Colors.white, // Ensure full white
+                    child: Center(
+                      child: SizedBox(
+                        width: 200,
+                        height: 200,
+                        child: Lottie.asset('assets/Loaders/App_Loader.json'),
+                      ),
+                    ),
+                  );
+                },
               );
+
+              try {
+                // ---------------------------------------------------------
+                // 2. FETCH DATA (Existing Logic)
+                // ---------------------------------------------------------
+
+                // 1. Get the BOOKING document
+                final bookingDoc = await order.doc.reference.get();
+
+                // Safety check: if doc is gone, close loader and return
+                if (!bookingDoc.exists) {
+                  if (context.mounted) Navigator.of(context).pop();
+                  return;
+                }
+
+                final data = bookingDoc.data() as Map<String, dynamic>;
+
+                // 2. Extract Data
+                final fullAddress = data['full_address'] as String? ?? 'Address not found';
+                final serviceId = data['service_id'] as String?;
+                final costBreakdown = data['cost_breakdown'] as Map<String, dynamic>? ?? {};
+
+                final foodCost = double.tryParse(costBreakdown['meals_cost']?.toString() ?? '0') ?? 0.0;
+                final walkingCost = double.tryParse(costBreakdown['daily_walking_cost']?.toString() ?? '0') ?? 0.0;
+                final boardingCost = double.tryParse(costBreakdown['boarding_cost']?.toString() ?? '0') ?? 0.0;
+                final transportCost = double.tryParse(data['transport_cost']?.toString() ?? '0') ?? 0.0;
+
+                final petIds = List<String>.from(data['pet_id'] ?? []);
+                final mealRates = Map<String, int>.from(data['mealRates'] ?? {});
+                final walkingRates = Map<String, int>.from(data['walkingRates'] ?? {});
+                final dailyRates = Map<String, int>.from(data['rates_daily'] ?? {});
+
+                final spLocation = data['sp_location'] as GeoPoint? ?? const GeoPoint(0, 0);
+
+                // 4. Fetch perDayServices (Async operation)
+                final Map<String, Map<String, dynamic>> perDayServices = {};
+                final petServicesSnapshot = await bookingDoc.reference.collection('pet_services').get();
+                for (var petDoc in petServicesSnapshot.docs) {
+                  perDayServices[petDoc.id] = petDoc.data();
+                }
+
+                // ---------------------------------------------------------
+                // 3. CLOSE LOADER & NAVIGATE
+                // ---------------------------------------------------------
+
+                if (context.mounted) {
+                  // Close the Loader Dialog
+                  Navigator.of(context).pop();
+
+                  // Navigate to Confirmation Page
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ConfirmationPage(
+                        gstRegistered: data['gstRegistered'] ?? false,
+                        checkoutEnabled: data['checkoutEnabled'] ?? false,
+                        boarding_rate: boardingCost,
+                        perDayServices: perDayServices,
+                        petIds: petIds,
+                        foodCost: foodCost,
+                        walkingCost: walkingCost,
+                        transportCost: transportCost,
+                        mealRates: mealRates,
+                        dailyRates: dailyRates,
+                        walkingRates: walkingRates,
+                        fullAddress: fullAddress,
+                        sp_location: spLocation,
+                        buildOpenHoursWidget: buildOpenHoursWidget(openTime, closeTime, dates),
+                        shopName: order.shopName,
+                        shopImage: order.shopImage,
+                        selectedDates: dates,
+                        totalCost: totalCost,
+                        petNames: petNamesList,
+                        openTime: openTime,
+                        closeTime: closeTime,
+                        bookingId: order.doc.id,
+                        sortedDates: sortedDates,
+                        petImages: petImages,
+                        serviceId: serviceId ?? '',
+                        fromSummary: false,
+                        petCostBreakdown: petCostBreakdown,
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                // If something fails, make sure to close the loader
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error loading booking details: $e")),
+                  );
+                }
+              }
             },
             child: Card(
               color: Colors.white,

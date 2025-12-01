@@ -1709,8 +1709,10 @@ class _BoardingParametersSelectionPageState
       body: SafeArea(
         child: _buildCurrentStep(), // This now includes the loading overlay
       ),
-      bottomNavigationBar: _buildFloatingActionBar(),
-    );
+      bottomNavigationBar: SafeArea(
+    top: false,
+    child: _buildFloatingActionBar(),
+    ),);
   }
 
   Widget _buildPetSelector() {

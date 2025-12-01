@@ -1086,10 +1086,14 @@ class _SummaryPageState extends State<SummaryPage> {
               ),
             ),
 
-            bottomNavigationBar: !isRejected ? _bottomBar(context) : null,
+            bottomNavigationBar: !isRejected
+                ? SafeArea(
+              top: false,
+              child: _bottomBar(context),
+            )
+                : null,
           ),
         );
-
       },
     );
   }
@@ -1383,7 +1387,7 @@ class _SummaryPageState extends State<SummaryPage> {
       ],
     );
   }
-  Widget _supportIcon(BuildContext context) {
+ /* Widget _supportIcon(BuildContext context) {
     return GestureDetector(
       onTap: () async {
         try {
@@ -1444,7 +1448,7 @@ class _SummaryPageState extends State<SummaryPage> {
         ),
       ),
     );
-  }
+  }*/
 
 
   Widget _buildEmbeddedInvoice() {

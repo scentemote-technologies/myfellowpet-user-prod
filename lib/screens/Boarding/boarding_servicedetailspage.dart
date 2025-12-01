@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1248,7 +1249,7 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
           return Scaffold(
             backgroundColor: _design.backgroundColor,
             body: const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
+              child: SizedBox(),
             ),
           );
         }
@@ -1653,72 +1654,73 @@ $_district, $_state - $_postalCode
               ],
             ),
           ),
-          bottomNavigationBar: _ActionFooter(
-            design: _design,
-            onPressed: () {
-              onConfirmNavigation() {
-                final selectedPetPricing = allPetPricing.firstWhere((p) => p.petName == _selectedPet);
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: _ActionFooter(
+              design: _design,
+              onPressed: () {
+                onConfirmNavigation() {
+                  final selectedPetPricing = allPetPricing.firstWhere((p) => p.petName == _selectedPet);
 
-                final Map<String, int> dailyRatesToPass = (widget.isOfferActive
-                    ? selectedPetPricing.offerRatesDaily
-                    : selectedPetPricing.ratesDaily)
-                    .map((key, value) =>
-                    MapEntry(key, int.tryParse(value.toString()) ?? 0));
+                  final Map<String, int> dailyRatesToPass = (widget.isOfferActive
+                      ? selectedPetPricing.offerRatesDaily
+                      : selectedPetPricing.ratesDaily)
+                      .map((key, value) => MapEntry(key, int.tryParse(value.toString()) ?? 0));
 
-                final Map<String, int> mealRatesToPass = (widget.isOfferActive
-                    ? selectedPetPricing.offerMealRatesDaily
-                    : selectedPetPricing.mealRatesDaily)
-                    .map((key, value) =>
-                    MapEntry(key, int.tryParse(value.toString()) ?? 0));
+                  final Map<String, int> mealRatesToPass = (widget.isOfferActive
+                      ? selectedPetPricing.offerMealRatesDaily
+                      : selectedPetPricing.mealRatesDaily)
+                      .map((key, value) => MapEntry(key, int.tryParse(value.toString()) ?? 0));
 
-                final Map<String, int> walkingRatesToPass = (widget.isOfferActive
-                    ? selectedPetPricing.offerWalkingRatesDaily
-                    : selectedPetPricing.walkingRatesDaily)
-                    .map((key, value) =>
-                    MapEntry(key, int.tryParse(value.toString()) ?? 0));
+                  final Map<String, int> walkingRatesToPass = (widget.isOfferActive
+                      ? selectedPetPricing.offerWalkingRatesDaily
+                      : selectedPetPricing.walkingRatesDaily)
+                      .map((key, value) => MapEntry(key, int.tryParse(value.toString()) ?? 0));
 
-                final feedingDetailsToPass = Map<String, dynamic>.from(selectedPetPricing.feedingDetails);
+                  final feedingDetailsToPass = Map<String, dynamic>.from(selectedPetPricing.feedingDetails);
 
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => BoardingParametersSelectionPage(
-                      max_pets_allowed: int.parse(_maxPetsAllowed),
-                      mode: widget.mode,
-                      open_time: _openTime,
-                      close_time: _closeTime,
-                      current_count_of_pet: _currentCountOfPet,
-                      initialSelectedPet: _selectedPet,
-                      shopName: widget.shopName,
-                      shopImage: widget.shopImage,
-                      sp_location: _location,
-                      companyName: _companyName,
-                      sp_id: _spId,
-                      walkingFee: _walkingFee,
-                      serviceId: _serviceId,
-                      rates: dailyRatesToPass,
-                      mealRates: mealRatesToPass,
-                      refundPolicy: _refundPolicy,
-                      fullAddress: _fullAddress,
-                      areaName: widget.areaName,
-                      walkingRates: walkingRatesToPass,
-                      feedingDetails: feedingDetailsToPass,
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => BoardingParametersSelectionPage(
+                        max_pets_allowed: int.parse(_maxPetsAllowed),
+                        mode: widget.mode,
+                        open_time: _openTime,
+                        close_time: _closeTime,
+                        current_count_of_pet: _currentCountOfPet,
+                        initialSelectedPet: _selectedPet,
+                        shopName: widget.shopName,
+                        shopImage: widget.shopImage,
+                        sp_location: _location,
+                        companyName: _companyName,
+                        sp_id: _spId,
+                        walkingFee: _walkingFee,
+                        serviceId: _serviceId,
+                        rates: dailyRatesToPass,
+                        mealRates: mealRatesToPass,
+                        refundPolicy: _refundPolicy,
+                        fullAddress: _fullAddress,
+                        areaName: widget.areaName,
+                        walkingRates: walkingRatesToPass,
+                        feedingDetails: feedingDetailsToPass,
+                      ),
                     ),
-                  ),
-                );
-              }
+                  );
+                }
 
-              if (_selectedPet != null) {
-                _showBookingConfirmationDialog(
-                  context,
-                  _selectedPet!.capitalize(),
-                  onConfirmNavigation,
-                );
-              } else {
-                onConfirmNavigation();
-              }
-            },
+                if (_selectedPet != null) {
+                  _showBookingConfirmationDialog(
+                    context,
+                    _selectedPet!.capitalize(),
+                    onConfirmNavigation,
+                  );
+                } else {
+                  onConfirmNavigation();
+                }
+              },
+            ),
           ),
+
         );
       },
     );
@@ -2259,12 +2261,66 @@ class __ServiceOverviewCardState extends State<_ServiceOverviewCard> {
                             },
                           ),
                         ),
-                        Text(
-                          '${widget.distanceKm.toStringAsFixed(1)} km away',
-                          style: GoogleFonts.poppins(
-                            fontSize: 11.5,
-                            color: Colors.black87,
-                          ),
+                        // lib/screens/Boarding/boarding_homepage.dart (Inside _BoardingServiceCardState.build, around line 1475)
+// Replace the existing Row that handles distance with this one:
+                        // Replace the Row inside BoardingServiceCard.build with this one:
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center, // Crucial for vertical alignment
+                          children: [
+                            Text(
+                              // dKm is 0.0 if not fetched, and double.infinity if error/no location
+                              widget.distanceKm.isInfinite || widget.distanceKm == 0.0 // Check for both
+                                  ? 'Location services disabled. Enable to view'
+                                  : '${widget.distanceKm.toStringAsFixed(1)} km away',
+                              style: const TextStyle(fontSize: 9),
+                            ),
+
+                            // 🚨 STABILITY FIX: Reserve space for the button regardless of its visibility
+                            SizedBox(
+                              width: 24, // Fixed width (e.g., 24px)
+                              height: 16, // Fixed height (to match text height)
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 4.0),
+                                  child: (widget.distanceKm.isInfinite || widget.distanceKm == 0.0)
+                                      ? IconButton(
+                                    onPressed: () async {
+                                      // Check current status
+                                      LocationPermission permissionStatus = await Geolocator.checkPermission();
+
+                                      // Try requesting permission (this shows the native dialog if possible)
+                                      if (permissionStatus == LocationPermission.denied) {
+                                        permissionStatus = await Geolocator.requestPermission();
+                                      }
+
+                                      // After attempting request, check the final status.
+                                      if (permissionStatus == LocationPermission.deniedForever ||
+                                          permissionStatus == LocationPermission.denied) {
+
+                                        // 🎯 MODIFICATION: Show the Dialog instead of the SnackBar
+                                        _showManualPermissionDialog(context);
+
+                                      } else if (permissionStatus == LocationPermission.whileInUse ||
+                                          permissionStatus == LocationPermission.always) {
+                                        // Permission was granted, the main listener will pick up the position soon.
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Location access granted! Refreshing distances...'),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
+                                      }
+                                    }, // End onPressed
+                                    icon: Icon(Icons.refresh, size: 14, color: Colors.red.shade700), // Button slightly bigger (14)
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  )
+                                      : const SizedBox.shrink(), // Show an empty box if location is working
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -2285,6 +2341,174 @@ class __ServiceOverviewCardState extends State<_ServiceOverviewCard> {
 
         ],
       ),
+    );
+  }
+  // lib/screens/Boarding/boarding_homepage.dart (or wherever your dialog functions are)
+
+  void _showManualPermissionDialog(BuildContext context) {
+    // Determine screen width for responsiveness
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          // Use ClipRRect for clean, rounded corners
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              // Use white background
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(20, 25, 20, 15),
+              width: isSmallScreen ? screenWidth * 0.85 : 400, // Responsive width
+
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+
+                  // 1. Header and Icon
+                  Row(
+                    children: [
+                      Icon(Icons.location_off, color: Colors.red.shade700, size: isSmallScreen ? 24 : 28),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "Location Access Required",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w700,
+                            fontSize: isSmallScreen ? 17 : 20,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const Divider(height: 25), // Clean separator
+
+                  // 2. Main Content and Instruction
+                  Text(
+                    "We need your location to accurately calculate distances to services.",
+                    style: GoogleFonts.poppins(
+                      fontSize: isSmallScreen ? 14 : 15,
+                      color: Colors.grey.shade700,
+                      height: 1.5,
+                    ),
+                  ),
+
+                  const SizedBox(height: 15),
+
+
+// 3. Highlighted Manual Instruction
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.warning_amber_rounded, size: isSmallScreen ? 18 : 20, color: Colors.red.shade700),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.poppins(
+                                fontSize: isSmallScreen ? 13 : 14,
+                                color: Colors.black87,
+                                height: 1.4,
+                              ),
+                              children: [
+
+                                // Title
+                                TextSpan(
+                                  text: "Permission Denied:\n",
+                                  style: GoogleFonts.poppins(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.red.shade700,
+                                  ),
+                                ),
+
+                                // 👇 ADD THIS for a blank line
+                                const TextSpan(text: "\n"),
+
+                                // Explanation
+                                const TextSpan(
+                                  text:
+                                  "You have permanently denied location access. \n\n",
+                                ),
+                                // Explanation
+                                const TextSpan(
+                                  text:
+                                  "The app is blocked from showing the permission request again.\n\n",
+                                ),
+
+
+
+
+                                // Second paragraph
+                                const TextSpan(
+                                  text:
+                                  "Please go to your device settings to manually enable location access for MyFellowPet.",
+                                ),
+                              ],
+                            ),
+
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 4. Action Buttons (Right Aligned)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // Close Button
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: Text(
+                          "Close",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 14 : 15,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+
+                      // Action Button (Could be "Go to Settings" if using permission_handler)
+                      // We'll keep it as "OK" for simplicity without adding a new dependency.
+                      ElevatedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primaryColor,
+                          padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 12 : 16, vertical: isSmallScreen ? 10 : 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: Text(
+                          "OK, I Understand",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 14 : 15,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2720,7 +2944,7 @@ class __ImageViewerDialogState extends State<_ImageViewerDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Colors.black87,
+      backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(8),
       child: Stack(
         alignment: Alignment.center,
@@ -2746,28 +2970,59 @@ class __ImageViewerDialogState extends State<_ImageViewerDialog> {
           ),
           Positioned(
             left: 10,
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back_ios,
-                  color: Colors.white, size: 30),
-              onPressed: _previousImage,
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.arrow_back_ios, size: 16, color: Colors.black),
+                onPressed: _previousImage,
+              ),
             ),
           ),
+
           Positioned(
             right: 10,
-            child: IconButton(
-              icon: const Icon(Icons.arrow_forward_ios,
-                  color: Colors.white, size: 30),
-              onPressed: _nextImage,
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.black),
+                onPressed: _nextImage,
+              ),
             ),
           ),
+
           Positioned(
             top: 30,
             right: 10,
-            child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white, size: 30),
-              onPressed: () => Navigator.of(context).pop(),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.close, size: 16, color: Colors.black),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
             ),
           ),
+
         ],
       ),
     );

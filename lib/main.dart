@@ -258,8 +258,77 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
-      home: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 400),
+
+        theme: ThemeData(
+          useMaterial3: true,
+
+          // ---- BRAND COLORS ----
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: AppColors.primaryColor,
+            primary: AppColors.primaryColor,
+          ),
+
+          // ---- TEXT SELECTION (Cursor, Handles, Highlight) ----
+          textSelectionTheme: TextSelectionThemeData(
+            cursorColor: AppColors.primaryColor,
+            selectionHandleColor: AppColors.primaryColor,
+            selectionColor: AppColors.primaryColor.withOpacity(0.25),
+          ),
+
+
+          // ---- BUTTONS (Elevated / Text / Outlined) ----
+          elevatedButtonTheme: ElevatedButtonThemeData(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            ),
+          ),
+
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primaryColor,
+            ),
+          ),
+
+          outlinedButtonTheme: OutlinedButtonThemeData(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primaryColor,
+              side: BorderSide(color: AppColors.primaryColor),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            ),
+          ),
+
+          // ---- ICONS ----
+          iconTheme: IconThemeData(color: AppColors.primaryColor),
+
+          // ---- APP BAR ----
+          appBarTheme: AppBarTheme(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black87,
+            elevation: 0.3,
+            centerTitle: true,
+            titleTextStyle: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+
+          // ---- DIVIDERS ----
+          dividerTheme: DividerThemeData(
+            color: Colors.grey.shade300,
+            thickness: 1,
+          ),
+        ),
+
+        home: AnimatedSwitcher(
+
+      duration: const Duration(milliseconds: 400),
         child: _hasInternet
             ? const CustomSplashPage()
             : NoInternetPage(onRetry: _checkInternet),
@@ -540,11 +609,12 @@ class HomeWithTabsState extends State<HomeWithTabs> {
           index: _currentIndex,
           children: _pages,
         ),
-        bottomNavigationBar: BottomNavigationBarWidget(
-          currentIndex: _currentIndex,
-          onTap: (i) => setState(() {
-            _currentIndex = i;
-          }),
+        bottomNavigationBar: SafeArea(
+          top: false,  // protect only the bottom
+          child: BottomNavigationBarWidget(
+            currentIndex: _currentIndex,
+            onTap: (i) => setState(() => _currentIndex = i),
+          ),
         ),
       ),
     );
