@@ -1346,9 +1346,10 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
                         const SizedBox(height: 12),
 
                         // At Offer Price
+                        // At Offer Price
                         _buildSwitchTile(
                           title: 'Special Offers',
-                          icon: Icons.local_offer_outlined,
+                          icon: null, // <-- This is correctly set to null
                           isActive: _showOffersOnly,
                           onChanged: (val) {
                             setState(() {
@@ -1977,7 +1978,7 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
   }
   Widget _buildSwitchTile({
     required String title,
-    required IconData icon,
+    required IconData? icon, // 🚨 Ensure icon is nullable
     required bool isActive,
     required ValueChanged<bool> onChanged,
   }) {
@@ -1995,11 +1996,19 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size: 20,
-              color: isActive ? const Color(0xFF25ADAD) : Colors.grey.shade600,
-            ),
+            // 🚨 MODIFIED: Conditionally render the Icon and SizedBox
+            if (icon != null)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    size: 20,
+                    color: isActive ? const Color(0xFF25ADAD) : Colors.grey.shade600,
+                  ),
+                  const SizedBox(width: 12),
+                ],
+              ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
