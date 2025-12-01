@@ -2286,32 +2286,59 @@ class __ServiceOverviewCardState extends State<_ServiceOverviewCard> {
                                   child: (widget.distanceKm.isInfinite || widget.distanceKm == 0.0)
                                       ? IconButton(
                                     onPressed: () async {
-                                      // Check current status
+                                      // 1. Check current app permission status
                                       LocationPermission permissionStatus = await Geolocator.checkPermission();
 
-                                      // Try requesting permission (this shows the native dialog if possible)
+                                      // 2. If denied, try to request the native OS dialog again.
                                       if (permissionStatus == LocationPermission.denied) {
+                                        // This attempt shows the native dialog if possible.
                                         permissionStatus = await Geolocator.requestPermission();
                                       }
 
-                                      // After attempting request, check the final status.
-                                      if (permissionStatus == LocationPermission.deniedForever ||
-                                          permissionStatus == LocationPermission.denied) {
-
-                                        // 🎯 MODIFICATION: Show the Dialog instead of the SnackBar
+                                      // --- HANDLE PERMANENT BLOCKAGE ---
+                                      if (permissionStatus == LocationPermission.deniedForever) {
+                                        // Permission is permanently blocked by the OS. Cannot ask again.
                                         _showManualPermissionDialog(context);
+                                        return;
+                                      }
 
-                                      } else if (permissionStatus == LocationPermission.whileInUse ||
+                                      // --- HANDLE GRANTED PERMISSION (but service might be off) ---
+                                      if (permissionStatus == LocationPermission.whileInUse ||
                                           permissionStatus == LocationPermission.always) {
-                                        // Permission was granted, the main listener will pick up the position soon.
+
+                                        // Check if the device's main location service (GPS) is enabled
+                                        bool isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+
+                                        if (isServiceEnabled) {
+                                          // ✅ SUCCESS: Permission granted AND GPS is ON.
+                                          // The stream listener in BoardingHomepage will handle the distance update.
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Location access granted! Refreshing distances...'),
+                                              duration: Duration(seconds: 2),
+                                            ),
+                                          );
+
+                                        } else {
+                                          // ⚠️ WARNING: Permission granted, but GPS is OFF.
+                                          // 🎯 MODIFIED: Show the specialized dialog for GPS disabled.
+                                          _showGpsDisabledDialog(context);
+                                        }
+                                        return;
+                                      }
+
+                                      // --- HANDLE REMAINING DENIED STATUS (User denied during the immediate request) ---
+                                      if (permissionStatus == LocationPermission.denied) {
+                                        // User was presented the native dialog in step 2 and hit DENY.
+                                        // Notify them and rely on them to tap the button again later.
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           const SnackBar(
-                                            content: Text('Location access granted! Refreshing distances...'),
+                                            content: Text('Location permission denied.'),
                                             duration: Duration(seconds: 2),
                                           ),
                                         );
                                       }
-                                    }, // End onPressed
+                                    },
                                     icon: Icon(Icons.refresh, size: 14, color: Colors.red.shade700), // Button slightly bigger (14)
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(),
@@ -2341,6 +2368,145 @@ class __ServiceOverviewCardState extends State<_ServiceOverviewCard> {
 
         ],
       ),
+    );
+  }
+
+
+  void _showGpsDisabledDialog(BuildContext context) {
+    // Define colors and responsiveness
+    const Color primaryColor = Color(0xFF25ADAD);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(20, 25, 20, 15),
+              width: isSmallScreen ? screenWidth * 0.85 : 400,
+
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+
+                  // 1. Header and Icon
+                  Row(
+                    children: [
+                      Icon(Icons.location_disabled, color: Colors.orange.shade700, size: isSmallScreen ? 24 : 28),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "Device Location is Off",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w700,
+                            fontSize: isSmallScreen ? 17 : 20,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const Divider(height: 25), // Clean separator
+
+                  // 2. Main Content and Instruction
+                  Text(
+                    "We have permission to access your location, but your device's GPS (Location Services) is currently disabled.",
+                    style: GoogleFonts.poppins(
+                      fontSize: isSmallScreen ? 14 : 15,
+                      color: Colors.grey.shade700,
+                      height: 1.5,
+                    ),
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  // 3. Highlighted Action Instruction
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50.withOpacity(0.5), // Light orange background
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.settings, size: isSmallScreen ? 18 : 20, color: Colors.orange.shade700),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.poppins(fontSize: isSmallScreen ? 13 : 14, color: Colors.black87, height: 1.4),
+                              children: [
+                                TextSpan(
+                                  text: "To view distances:\n",
+                                  style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.orange.shade700),
+                                ),
+                                const TextSpan(
+                                  text: "Please tap 'Open Settings' below to enable Location Services.",
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // 4. Action Buttons (Right Aligned)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // Close Button
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: Text(
+                          "Cancel",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 14 : 15,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+
+                      // Open Settings Button
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop();
+                          Geolocator.openLocationSettings(); // 🎯 Action: Redirect to OS settings
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          padding: EdgeInsets.symmetric(horizontal: isSmallScreen ? 12 : 16, vertical: isSmallScreen ? 10 : 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: Text(
+                          "Open Settings",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 14 : 15,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
   // lib/screens/Boarding/boarding_homepage.dart (or wherever your dialog functions are)
