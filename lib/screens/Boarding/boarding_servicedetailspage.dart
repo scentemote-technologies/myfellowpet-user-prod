@@ -119,6 +119,7 @@ class BoardingServiceDetailPage extends StatefulWidget {
 class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
     with SingleTickerProviderStateMixin {
   GeoPoint _location = const GeoPoint(0.0, 0.0);
+
   String _companyName = '';
   String _description = '';
   bool _warningShown = false;
