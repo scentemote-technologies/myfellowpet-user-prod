@@ -324,6 +324,12 @@ class _MyAppState extends State<MyApp> {
             color: Colors.grey.shade300,
             thickness: 1,
           ),
+
+          progressIndicatorTheme: ProgressIndicatorThemeData(
+            color: AppColors.primaryColor,             // spinning color
+            circularTrackColor: Colors.grey.shade300,  // optional background track
+          ),
+
         ),
 
         home: AnimatedSwitcher(
