@@ -624,8 +624,12 @@ class _SummaryPageState extends State<SummaryPage> {
       for (final b in batches) { await b.commit(); }
 
       if (mounted) {
-        Navigator.of(context).popUntil((r) => r.isFirst);
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeWithTabs()));
+        // 🚨 CORRECTED NAVIGATION: Use pushAndRemoveUntil to replace ALL routes
+        // with HomeWithTabs, ensuring a clean navigation stack.
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => HomeWithTabs()),
+              (Route<dynamic> route) => false, // This predicate returns false for all routes, removing all history
+        );
       }
     } catch (e) {
       debugPrint("Error during cancellation: $e");
@@ -1320,17 +1324,26 @@ class _SummaryPageState extends State<SummaryPage> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                "$areaName  |  ${orderId.substring(0, 10)}..",
-                style: GoogleFonts.poppins(
-                  fontSize: 12.5,
-                  color: Colors.grey.shade600,
+              // 🎯 MODIFIED: GestureDetector added to the text to open the dialog
+              GestureDetector(
+                onTap: () => _showOrderDetailsDialog(
+                    context,
+                    areaName,
+                    orderId // Pass the full order ID
                 ),
-                overflow: TextOverflow.ellipsis,
+                child: Text(
+                  "${areaName.substring(0, 9)}..  |  ${orderId.substring(0, 11)}..",
+                  style: GoogleFonts.poppins(
+                    fontSize: 12.5,
+                    color: Colors.grey.shade600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
 
               const SizedBox(width: 4),
 
+              // Copy button remains dedicated to copying the ID
               GestureDetector(
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: orderId)); // copy full order id
@@ -1384,6 +1397,126 @@ class _SummaryPageState extends State<SummaryPage> {
             ],
           ),
         )
+      ],
+    );
+  }
+  // lib/screens/Boarding/SummaryPage.dart (Add this helper function)
+
+  void _showOrderDetailsDialog(BuildContext context, String fullAreaName, String fullOrderId) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+    const Color primaryColor = AppColors.primaryColor;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+              width: isSmallScreen ? screenWidth * 0.9 : 450,
+
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+
+                  // 1. Title
+                  Text(
+                    "Booking Identification Details",
+                    style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w700,
+                      fontSize: isSmallScreen ? 18 : 20,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const Divider(height: 20, color: Colors.grey),
+
+                  // 2. Order ID
+                  _buildDetailRow(
+                    icon: Icons.confirmation_number_rounded,
+                    title: "Full Order ID",
+                    value: fullOrderId,
+                    isSmallScreen: isSmallScreen,
+                    context: context,
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // 3. Area Name
+                  _buildDetailRow(
+                    icon: Icons.location_on_rounded,
+                    title: "Service Area Name",
+                    value: fullAreaName,
+                    isSmallScreen: isSmallScreen,
+                    context: context,
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // 4. Close Button
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: Text(
+                        "Close",
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w600,
+                          fontSize: isSmallScreen ? 14 : 15,
+                          color: primaryColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+// Helper widget for a single row in the dialog
+  Widget _buildDetailRow({
+    required IconData icon,
+    required String title,
+    required String value,
+    required bool isSmallScreen,
+    required BuildContext context,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 18, color: AppColors.primaryColor),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: GoogleFonts.poppins(
+                fontSize: isSmallScreen ? 13 : 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 4, left: 26),
+          child: SelectableText( // Use SelectableText to allow copying the full value
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: isSmallScreen ? 14 : 15,
+              fontWeight: FontWeight.w500,
+              color: Colors.black,
+              height: 1.4,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -1475,6 +1608,17 @@ class _SummaryPageState extends State<SummaryPage> {
 
         final double serviceGst =
         gstRegistered ? widget.gstOnSpService : 0.0;
+        // 1. Core Service Cost (Boarding + Meal + Walk)
+        double serviceSubtotal = newBoardingCost + newMealsCost + newWalkingCost;
+
+        // 2. Add Service Provider's GST (only if registered)
+        double serviceGstComponent = gstRegistered ? widget.gstOnSpService : 0.0;
+
+        // 3. Add Platform Fee components (only if checkout is ENABLED)
+        double platformFeeComponent = checkoutEnabled ? (widget.platformFeeExcGst + widget.gstOnPlatformFee) : 0.0;
+
+        // 4. Final calculation based on components
+        double overallTotal = serviceSubtotal + serviceGstComponent + platformFeeComponent;
 
         return Card(
           elevation: 0.8,
@@ -1535,6 +1679,16 @@ class _SummaryPageState extends State<SummaryPage> {
                     ],
 
                     const SizedBox(height: 12),
+        Divider(color: darkColor, thickness: 1.5, height: 25), // Strong divider
+                    // Calculate the final Grand Total
+                    // This uses the widget's pre-calculated total cost, which should include all component fees, transport, and initial GST.
+                    _buildItemRow(
+                      "Overall Total",
+                      overallTotal, // 🚨 Use the manually calculated total
+                      isTotal: true,
+                    ),
+
+                    const SizedBox(height: 12),// Spacer before the toggle
 
                     // 🔽 Toggle Per Pet Breakdown
                     InkWell(
