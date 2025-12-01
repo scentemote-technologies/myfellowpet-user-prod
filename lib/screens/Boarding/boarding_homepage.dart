@@ -1997,6 +1997,7 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
         child: Row(
           children: [
             // 🚨 MODIFIED: Conditionally render the Icon and SizedBox
+            // 🚨 MODIFIED: Conditionally render the Icon and SizedBox
             if (icon != null)
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -2006,10 +2007,9 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
                     size: 20,
                     color: isActive ? const Color(0xFF25ADAD) : Colors.grey.shade600,
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 12), // Spacer after the icon
                 ],
               ),
-            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 title,
