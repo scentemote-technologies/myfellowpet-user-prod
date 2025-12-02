@@ -518,6 +518,8 @@ class _BoardingParametersSelectionPageState
   late Future<List<Map<String, dynamic>>> _petListFuture;
   List<Map<String, dynamic>> _allPets = [];
   late bool gstRegistered = true; // default true
+  late String gstNumber = "NA";
+
   late bool checkoutEnabled = true; // default true
 
   Future<void> _fetchGstFlag() async {
@@ -526,7 +528,10 @@ class _BoardingParametersSelectionPageState
         .doc(widget.serviceId)
         .get();
 
-    gstRegistered = doc.data()?['gst_registered'] == true;
+    final data = doc.data();
+
+    gstRegistered = data?['gst_registered'] == true;
+    gstNumber = data?['gst_number']?.toString() ?? "Unknown GST";
   }
   Future<void> _fetchCheckOutEnabledFlag() async {
     final doc = await FirebaseFirestore.instance
@@ -1124,6 +1129,10 @@ class _BoardingParametersSelectionPageState
     }
   }
 
+
+
+
+
   // ✨ NEW: Extracted the final booking logic into its own function
   Future<void> _executeBooking() async {
     final int numberOfPets = _selectedPetIds.length;
@@ -1249,10 +1258,17 @@ class _BoardingParametersSelectionPageState
           .doc(widget.serviceId)
           .collection('service_request_boarding')
           .doc();
+      // 1. Define intermediate totals
+      final double spTotalCostIncGst = gstRegistered
+          ? spServiceFee + spServiceGst
+          : spServiceFee;
+
+      final double platformChargeTotal = f.platform + f.gst;
 
       final mainBookingData = {
         // ⭐ ADD THESE TWO
         'gstRegistered': gstRegistered,
+        'gstNumber':gstNumber,
         'checkoutEnabled': checkoutEnabled,
 
         // ... (mainBookingData remains the same, using totalBoardingCost, totalWalkingCost, totalMealsCost)
@@ -1289,12 +1305,12 @@ class _BoardingParametersSelectionPageState
         'platform_fee_inc_gst': f.platform + f.gst,
         'gst_on_platform_fee': f.gst,
 
-// User Paid = SP inc GST + Platform inc GST  (NO grandTotal)
-        'total_amount_paid': (spServiceFee + spServiceGst) + (f.platform + f.gst),
+// 🏆 FINAL PAYLOAD FIELDS:
+        'total_amount_paid': checkoutEnabled
+            ? (spTotalCostIncGst + platformChargeTotal) // Includes Platform fees
+            : spTotalCostIncGst,                         // Excludes Platform fees
 
-// Refund System
-        'remaining_refundable_amount': spServiceFee + spServiceGst, // only SP part refundable
-        'total_refunded_amount': 0,
+        'remaining_refundable_amount': spTotalCostIncGst, // Based on SP service cost only        'total_refunded_amount': 0,
 
 // Admin keeps this
         'admin_fee_collected_total': f.platform,
@@ -1384,6 +1400,8 @@ class _BoardingParametersSelectionPageState
         context,
         MaterialPageRoute(
           builder: (_) => SummaryPage(
+            gstNumber:gstNumber,
+            gstRegistered:gstRegistered,
             spServiceFeeExcGst: spServiceFee,
             spServiceFeeIncGst: spServiceFee + spServiceGst,
             gstOnSpService: spServiceGst,

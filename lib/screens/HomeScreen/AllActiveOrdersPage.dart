@@ -89,6 +89,7 @@ class AllActiveOrdersPage extends StatelessWidget {
         context,
         MaterialPageRoute(
           builder: (_) => ConfirmationPage(
+            gstNumber:data['gst_number'] ?? "NA",
             gstRegistered: data['gstRegistered'] ?? false,
             checkoutEnabled: data['checkoutEnabled'] ?? false,
             perDayServices: perDayServices,

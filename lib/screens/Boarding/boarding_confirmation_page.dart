@@ -39,6 +39,7 @@ class ConfirmationPage extends StatefulWidget  {
   final bool gstRegistered;
   final bool checkoutEnabled;
   final String shopName;
+  final String gstNumber;
   final String bookingId;
   final String serviceId;
   final bool fromSummary;
@@ -95,7 +96,7 @@ class ConfirmationPage extends StatefulWidget  {
     required this.walkingRates,
     required this.fullAddress,
     required this.sp_location, required this.boarding_rate, required this.dailyRates,
-    required this.petCostBreakdown, // <<< NEW PARAMETER
+    required this.petCostBreakdown, required this.gstNumber, // <<< NEW PARAMETER
   }) : super(key: key);
 
   // --- Constants for Styling ---
@@ -112,6 +113,7 @@ class ConfirmationPage extends StatefulWidget  {
 class _ConfirmationPageState extends State<ConfirmationPage> {
 
 
+
   static const Color primaryColor = Color(0xFF00C2CB);
 
   static const Color secondaryColor = Color(0xFF0097A7);
@@ -124,20 +126,8 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
 
   static const Color backgroundColor = Color(0xFFFFFFFF);
 
+  late final Future<_CombinedData> _combinedDataFuture;
 
-  // --- Helper Functions (Unchanged Logic) ---
-
-  Future<GeoPoint> _fetchShopLocation() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users-sp-boarding')
-        .doc(widget.serviceId)
-        .get();
-    final data = doc.data();
-    if (data == null || data['shop_location'] == null) {
-      throw 'No location found';
-    }
-    return data['shop_location'] as GeoPoint;
-  }
 
   // Inside _ConfirmationPageState
   late final Future<_FeesData> _feesFuture;
@@ -145,33 +135,52 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
   @override
   void initState() {
     super.initState();
-    _feesFuture = _fetchFees();
+    _combinedDataFuture = _fetchAllData();
   }
 
 
-  Future<_FeesData> _fetchFees() async {
-    final snap = await FirebaseFirestore.instance.collection('company_documents').doc('fees').get();
-    final data = snap.data() ?? {};
 
-    // 1. Fetch the user-app platform fee (assuming ₹7)
-    // We use 7.0 as a safe fallback if the field is missing.
+// --- NEW COMBINED FETCH FUNCTION ---
+  Future<_CombinedData> _fetchAllData() async {
+    // 1. Fetch SP Document (users-sp-boarding/widget.serviceId)
+    final spDocFuture = FirebaseFirestore.instance
+        .collection('users-sp-boarding')
+        .doc(widget.serviceId) // FIX: widget. added
+        .get();
+
+    // 2. Fetch Fees Document (company_documents/fees)
+    final feesDocFuture = FirebaseFirestore.instance
+        .collection('company_documents')
+        .doc('fees')
+        .get();
+
+    // Wait for both documents simultaneously
+    final results = await Future.wait([spDocFuture, feesDocFuture]);
+
+    final spDoc = results[0] as DocumentSnapshot;
+    final feesDoc = results[1] as DocumentSnapshot;
+
+    final spData = spDoc.data() as Map<String, dynamic>? ?? {};
+    final feesData = feesDoc.data() as Map<String, dynamic>? ?? {}; // 🚀 FIX: Ensure feesData is explicitly cast to Map<String, dynamic>
+
+// Now the access below should work:
     final double platformFeePreGst =
-        double.tryParse(data['platform_fee_user_app']?.toString() ?? '7.0') ?? 7.0;
+        double.tryParse(feesData['platform_fee_user_app']?.toString() ?? '7.0') ?? 7.0;
 
-    // 2. Fetch the GST percentage (assuming 18.0)
-    // We divide by 100 to get the decimal rate (0.18).
     final double gstPercentageForDisplay =
-        double.tryParse(data['gst_rate_percent']?.toString() ?? '') ?? 0.0;
-
+        double.tryParse(feesData['gst_rate_percent']?.toString() ?? '') ?? 0.0;
+// ...
     final double gstRateDecimal = gstPercentageForDisplay / 100.0;
-
-    // 3. Calculate the GST on your platform fee
     final double platformFeeGst = platformFeePreGst * gstRateDecimal;
+    final fees = _FeesData(platformFeePreGst, platformFeeGst, gstPercentageForDisplay);
 
-    return _FeesData(
-        platformFeePreGst,
-        platformFeeGst,
-        gstPercentageForDisplay
+    // 4. Extract SP Data
+    return _CombinedData(
+      areaName: spData['area_name']?.toString() ?? 'Unknown area',
+      shopLocation: spData['shop_location'] as GeoPoint? ?? const GeoPoint(0, 0),
+      phoneNumber: spData['dashboard_whatsapp']?.toString() ?? 'N/A',
+      whatsappNumber: spData['dashboard_whatsapp']?.toString() ?? 'N/A', // Assuming same number for both
+      fees: fees,
     );
   }
 
@@ -225,43 +234,9 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     );
   }
 
-  Future<String> _fetchPhoneNumber() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users-sp-boarding')
-        .doc(widget.serviceId)
-        .get();
-    final data = doc.data();
-    if (data == null || data['dashboard_whatsapp'] == null) {
-      throw 'No Number';
-    }
-    return data['dashboard_whatsapp'] as String;
-  }
 
-  Future<String> _fetchWhatsappNumber() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users-sp-boarding')
-        .doc(widget.serviceId)
-        .get();
-    final data = doc.data() as Map<String, dynamic>?;
-    if (data == null || data['dashboard_whatsapp'] == null) {
-      throw 'No Whatsapp';
-    }
-    return data['dashboard_whatsapp'] as String;
-  }
 
-  Future<String> _fetchAreaName() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users-sp-boarding')
-        .doc(widget.serviceId)
-        .get();
-
-    if (!doc.exists) return 'Unknown area';
-    final data = doc.data();
-    if (data == null) return 'Unknown area';
-    return data['area_name']?.toString() ?? 'Unknown area';
-  }
-
-  Future<String> _fetchBookingDate() async {
+  Future<Map<String, String>> _fetchBookingDates() async {
     final doc = await FirebaseFirestore.instance
         .collection('users-sp-boarding')
         .doc(widget.serviceId)
@@ -269,15 +244,32 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
         .doc(widget.bookingId)
         .get();
 
-    if (!doc.exists) return 'Unknown date';
+    const String unknown = 'Unknown date';
+    final Map<String, String> results = {
+      'creationDate': unknown,
+      'confirmationDate': unknown,
+    };
+
+    if (!doc.exists) return results;
     final data = doc.data() as Map<String, dynamic>?;
-    if (data == null) return 'Unknown date';
+    if (data == null) return results;
 
-    final raw = data['timestamp'];
-    if (raw is! Timestamp) return 'Unknown date';
-    return DateFormat('dd MMM yyyy, hh:mm a').format(raw.toDate());
+    final formatter = DateFormat('dd MMM yyyy, hh:mm a');
+
+    // 1. Retrieve Booking Creation Time ('timestamp')
+    final rawCreation = data['timestamp'];
+    if (rawCreation is Timestamp) {
+      results['creationDate'] = formatter.format(rawCreation.toDate());
+    }
+
+    // 2. Retrieve Booking Confirmation Time ('confirmed_at')
+    final rawConfirmation = data['confirmed_at'];
+    if (rawConfirmation is Timestamp) {
+      results['confirmationDate'] = formatter.format(rawConfirmation.toDate());
+    }
+
+    return results;
   }
-
   Future<DocumentSnapshot> _bookingDoc() {
     return FirebaseFirestore.instance
         .collection('users-sp-boarding')
@@ -427,13 +419,8 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-// Your existing header with name and area
-
         _shopHeader(),
-
         const Divider(height: 24, thickness: 1),
-
-// New section for the full address
 
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -443,8 +430,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                widget.fullAddress, // Using the full address for more detail
-
+                widget.fullAddress,
                 style: GoogleFonts.poppins(
                     fontSize: 14, color: lightTextColor, height: 1.5),
               ),
@@ -454,24 +440,20 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
 
         const SizedBox(height: 20),
 
-// New "View on Map" button for better functionality
-
-        FutureBuilder<GeoPoint>(
-          future: _fetchShopLocation(),
+        // 🚀 MODIFIED: Use _combinedDataFuture to get location
+        FutureBuilder<_CombinedData>(
+          future: _combinedDataFuture,
           builder: (context, snapshot) {
-            // Check if the future is complete and has data
             final bool isReady = snapshot.hasData;
-            final GeoPoint? location = snapshot.data;
+            final GeoPoint? location = snapshot.data?.shopLocation;
 
             return SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                // Added an icon, as required by ElevatedButton.icon
                 icon: const Icon(Icons.location_on, size: 20, color: Colors.white,),
                 label: const Text("View on Map"),
-                // The button is disabled (onPressed is null) until the location is fetched
-                onPressed: isReady
-                    ? () => _openMap(location!.latitude, location.longitude)
+                onPressed: (isReady && location != null)
+                    ? () => _openMap(location.latitude, location.longitude)
                     : null,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -480,7 +462,6 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-                  // Visually indicate the disabled state
                   disabledBackgroundColor: Colors.grey.shade300,
                 ),
               ),
@@ -552,8 +533,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
   }
 
 
-
-// REPLACE your old _showInvoiceDialog with this new one
+// Inside _ConfirmationPageState
   void _showInvoiceDialog() {
     showModalBottomSheet(
       context: context,
@@ -562,8 +542,31 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
       builder: (context) {
         bool showPetDetails = false;
 
-        return StatefulBuilder(
-          builder: (context, setState) {
+        // 1. --- FUTURE BUILDER WRAPS EVERYTHING ---
+        return FutureBuilder<_CombinedData>(
+          future: _combinedDataFuture,
+          builder: (context, snap) {
+            if (!snap.hasData) {
+              return Center(
+                child: Container(
+                  height: 150,
+                  width: 150,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Center(
+                      child: CircularProgressIndicator(
+                          color: ConfirmationPage.accentColor)),
+                ),
+              );
+            }
+
+            final _CombinedData combinedData = snap.data!;
+            final _FeesData fees = combinedData.fees;
+            final String gstNumber = widget.gstNumber ?? ''; // Assuming gstNumber field exists
+
+            // Pre-calculate costs (this logic remains outside the inner StateBuilder)
             final double newBoardingCost = widget.petCostBreakdown
                 .map<double>((m) => m['totalBoardingCost'] as double? ?? 0.0)
                 .fold(0.0, (prev, current) => prev + current);
@@ -576,127 +579,126 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                 .map<double>((m) => m['totalWalkingCost'] as double? ?? 0.0)
                 .fold(0.0, (prev, current) => prev + current);
 
-            final double serviceSubTotal = newBoardingCost + newMealsCost + newWalkingCost;
+            final double serviceSubTotal =
+                newBoardingCost + newMealsCost + newWalkingCost;
 
-            return DraggableScrollableSheet(
-              expand: false,
-              initialChildSize: 0.8,
-              minChildSize: 0.5,
-              maxChildSize: 0.95,
-              builder: (context, scrollController) {
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
-                        blurRadius: 20,
-                        offset: const Offset(0, -4),
+            // 2. --- STATEFUL BUILDER (To handle showPetDetails toggle) ---
+            return StatefulBuilder(
+              builder: (context, setState) {
+                final bool gstRegistered = widget.gstRegistered;
+                final bool checkoutEnabled = widget.checkoutEnabled;
+
+                double serviceGst = gstRegistered
+                    ? serviceSubTotal * (fees.gstPercentage / 100)
+                    : 0.0;
+
+                double platformFeeTotal = checkoutEnabled
+                    ? (fees.platformFeePreGst + fees.platformFeeGst)
+                    : 0.0;
+
+                double grandTotal =
+                    serviceSubTotal + serviceGst + platformFeeTotal;
+
+                return DraggableScrollableSheet(
+                  expand: false,
+                  initialChildSize: 0.8,
+                  minChildSize: 0.5,
+                  maxChildSize: 0.95,
+                  builder: (context, scrollController) {
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(26)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 20,
+                            offset: const Offset(0, -4),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      // --- HEADER ---
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 60,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade300,
-                                borderRadius: BorderRadius.circular(5),
-                              ),
+                      child: Column(
+                        children: [
+                          // 3. --- SHOP NAME & GSTIN CONTAINER (OUTSIDE LISTVIEW) ---
+                          // Replaces the two separate, empty Containers you had
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
+                            decoration: const BoxDecoration(
+                              color: Colors.transparent,
                             ),
-                            const SizedBox(height: 12),
-                            Text(
-                              "Invoice Summary",
-                              style: GoogleFonts.poppins(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // --- CONTENT ---
-                      Expanded(
-                        child: FutureBuilder<_FeesData>(
-                          future: _feesFuture,
-                          builder: (_, snap) {
-                            if (!snap.hasData) {
-                              return const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(32.0),
-                                  child: CircularProgressIndicator(),
-                                ),
-                              );
-                            }
-
-                            final fees = snap.data!;
-                            final bool gstRegistered = widget.gstRegistered;
-                            final bool checkoutEnabled = widget.checkoutEnabled;
-
-                            double serviceGst = gstRegistered
-                                ? serviceSubTotal * (fees.gstPercentage / 100)
-                                : 0.0;
-
-                            double platformFeeTotal = checkoutEnabled
-                                ? (fees.platformFeePreGst + fees.platformFeeGst)
-                                : 0.0;
-
-                            double grandTotal = serviceSubTotal + serviceGst + platformFeeTotal;
-
-                            return ListView(
-                              controller: scrollController,
-                              padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
-                              children: [
-                                _buildItemRow('Boarding Fee (Pre-GST)', newBoardingCost),
-                                if (newMealsCost > 0)
-                                  _buildItemRow('Meal Fee (Pre-GST)', newMealsCost),
-                                if (newWalkingCost > 0)
-                                  _buildItemRow('Walking Fee (Pre-GST)', newWalkingCost),
-
-                                if (gstRegistered || checkoutEnabled) ...[
-                                  const SizedBox(height: 10),
-                                  Divider(color: Colors.grey.shade300, thickness: 1),
-                                  const SizedBox(height: 10),
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    widget.shopName,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  // 🚀 Display GSTIN below shop name
+                                  if (gstRegistered)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        'GSTIN: $gstNumber',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ),
                                 ],
-                                if (gstRegistered)
-                                  _buildItemRow('GST (${fees.gstPercentage.toStringAsFixed(0)}%) on Service', serviceGst),
+                              ),
+                            ),
+                          ),
+                          // --- END SHOP NAME / GSTIN ---
 
-                                if (checkoutEnabled)
-                                  _buildItemRow('Platform Fee (Pre-GST)', fees.platformFeePreGst),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                            child: Divider(
+                                color: darkColor,
+                                thickness: 2.5,
+                                height: 25), // Strong divider
+                          ),
 
-                                if (checkoutEnabled)
-                                  _buildItemRow('GST on Platform Fee', fees.platformFeeGst),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(0, 0, 0, 0),
+                            child: _buildEmbeddedBookingDetailsInInvoice(),
+                          ),
+                          Divider(color: Colors.grey.shade300),
 
+                          // 4. --- CONTENT LISTVIEW ---
+                          Expanded(
+                            child: ListView(
+                              controller: scrollController,
+                              padding: const EdgeInsets.fromLTRB(16, 3, 16, 20),
+                              children: [
+                                _buildItemRow('Boarding Fee', newBoardingCost),
+                                if (newMealsCost > 0)
+                                  _buildItemRow('Meal Fee', newMealsCost),
+                                if (newWalkingCost > 0)
+                                  _buildItemRow('Walking Fee', newWalkingCost),
 
-                            const SizedBox(height: 14),
-                                Divider(color: Colors.grey.shade400, thickness: 1.2),
-                                const SizedBox(height: 14),
-
-                                _buildItemRow('Overall Total', grandTotal, isTotal: true),
-
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 4),
 
                                 // --- TOGGLE ---
                                 Center(
                                   child: InkWell(
-                                    onTap: () =>
-                                        setState(() => showPetDetails = !showPetDetails),
+                                    onTap: () => setState(
+                                            () => showPetDetails = !showPetDetails),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Text(
                                           showPetDetails
-                                              ? "Hide Per-Pet Breakdown"
-                                              : "Show Per-Pet Breakdown",
+                                              ? "Hide Price Breakdown"
+                                              : "Show Price Breakdown",
                                           style: GoogleFonts.poppins(
                                             fontSize: 14,
                                             fontWeight: FontWeight.w600,
@@ -714,7 +716,6 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                                     ),
                                   ),
                                 ),
-
                                 const SizedBox(height: 10),
 
                                 AnimatedCrossFade(
@@ -725,13 +726,54 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                                       : CrossFadeState.showFirst,
                                   duration: const Duration(milliseconds: 300),
                                 ),
+
+                                if (gstRegistered || checkoutEnabled) ...[
+                                  const SizedBox(height: 10),
+                                  Divider(color: Colors.grey.shade300, thickness: 1),
+                                  const SizedBox(height: 10),
+                                ],
+                                if (gstRegistered)
+                                  _buildItemRow(
+                                      'GST (${fees.gstPercentage.toStringAsFixed(0)}%) on Service',
+                                      serviceGst),
+
+                                if (checkoutEnabled)
+                                  _buildItemRow('Platform Fee (Pre-GST)',
+                                      fees.platformFeePreGst),
+
+                                if (checkoutEnabled)
+                                  _buildItemRow(
+                                      'GST on Platform Fee', fees.platformFeeGst),
+
+                                const SizedBox(height: 14),
+                                Divider(
+                                    color: Colors.grey.shade400, thickness: 1.2),
+                                const SizedBox(height: 14),
+
+                                _buildItemRow('Overall Total', grandTotal,
+                                    isTotal: true),
+
+                                if (!checkoutEnabled)
+                                  Container(
+                                    width: double.infinity,
+                                    alignment: Alignment.center,
+                                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                                    child: Text(
+                                      "This payment must be made directly to the boarder.",
+                                      textAlign: TextAlign.center,
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade900,
+                                      ),
+                                    ),
+                                  ),
                               ],
-                            );
-                          },
-                        ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    );
+                  },
                 );
               },
             );
@@ -741,6 +783,151 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     );
   }
 
+  bool _showAllPets = false;
+
+  Widget _buildEmbeddedBookingDetailsInInvoice() {
+    final totalPets = widget.petIds.length;
+    final hasMorePets = totalPets > 1;
+
+    return Card(
+      color: Colors.white,
+      elevation: 0,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 0, bottom: 0),
+            child: Column(
+              children: [
+                /// -------------------------------------
+                /// 1️⃣ SHOW PETS
+                /// -------------------------------------
+
+                /// Show only 1 if collapsed
+                _buildPetTile(0),
+
+                /// Show rest only when expanded
+                if (_showAllPets)
+                  ...List.generate(
+                    totalPets - 1,
+                        (i) => _buildPetTile(i + 1),
+                  ),
+
+                /// -------------------------------------
+                /// 2️⃣ SHOW MORE / SHOW LESS (AT BOTTOM)
+                /// -------------------------------------
+                if (hasMorePets)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _showAllPets = !_showAllPets);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _showAllPets ? "Show less" : "Show more",
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: Colors.black87,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            _showAllPets
+                                ? Icons.keyboard_arrow_up
+                                : Icons.keyboard_arrow_down,
+                            size: 15,
+                            color: AppColors.primaryColor,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildPetTile(int index) {
+    final petId = widget.petIds[index];
+    final petName = widget.petNames[index];
+    final petImage = widget.petImages[index];
+    final petServiceDetails = widget.perDayServices[petId];
+
+    if (petServiceDetails == null) return const SizedBox.shrink();
+
+    final dailyDetails =
+    petServiceDetails['dailyDetails'] as Map<String, dynamic>;
+    final sortedDatesForPet = dailyDetails.keys.toList()..sort();
+
+    return ExpansionTile(
+      iconColor: Colors.black87,
+      collapsedIconColor: Colors.black87,
+      leading: CircleAvatar(
+        backgroundImage: NetworkImage(petImage),
+        radius: 18,
+      ),
+      title: Text(
+        petName,
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          color: Colors.black87,
+        ),
+      ),
+      subtitle: Text(
+        "${dailyDetails.length} days",
+        style: GoogleFonts.poppins(
+          fontSize: 12,
+          color: Colors.grey.shade600,
+        ),
+      ),
+      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      minTileHeight: 0,
+      shape: const Border(),
+
+      children: [
+        ...sortedDatesForPet.map((dateString) {
+          final date = DateFormat('yyyy-MM-dd').parse(dateString);
+          final details = dailyDetails[dateString] as Map<String, dynamic>;
+
+          final hasMeal = details['meals'] == true;
+          final hasWalk = details['walk'] == true;
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4.0),
+            child: Row(
+              children: [
+                Text(
+                  DateFormat('EEE, dd MMM').format(date),
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: Colors.black87,
+                  ),
+                ),
+                const Spacer(),
+                if (hasMeal)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Icon(Icons.restaurant_menu, size: 14),
+                  ),
+                if (hasWalk)
+                  const Icon(Icons.directions_walk, size: 14),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
 
   // --- ConfirmationPage.dart / SummaryPage.dart ---
 
@@ -1295,6 +1482,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
           child: imageWidget, // Use the determined image/icon widget
         ),
         const SizedBox(width: 16),
+        const SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1305,7 +1493,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
               ),
               const SizedBox(height: 4),
 
-              // --- Time Row (already in your code) ---
+              // --- Time Row ---
               Row(
                 children: [
                   Icon(
@@ -1325,20 +1513,23 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                 ],
               ),
               // --- Area Name FutureBuilder ---
-              FutureBuilder<String>(
-                future: _fetchAreaName(),
+              // 🚀 MODIFIED: Use _combinedDataFuture
+              FutureBuilder<_CombinedData>(
+                future: _combinedDataFuture,
                 builder: (ctx, snap) {
+                  final areaName = snap.data?.areaName ?? 'Loading area...';
+
                   return Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const FaIcon(
                         Icons.location_pin,
                         size: 16,
-                        color: Colors.black87, // or AppColor.primary
+                        color: Colors.black87,
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        snap.data ?? 'Loading area...',
+                        areaName,
                         style: GoogleFonts.poppins(
                           fontSize: 14,
                           color: ConfirmationPage.secondaryTextColor,
@@ -1355,67 +1546,110 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     );
   }
   Widget _buildContactActions() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        // Location button using a custom asset image
-        _ContactIconButton(
-          label: 'Location',
-          // Make sure you have this image in your assets folder
-          // and have declared it in your pubspec.yaml
-          assetImagePath: 'assets/google_maps_logo.png',
-          future: _fetchShopLocation(),
-          onPressed: (location) => _openMap(location.latitude, location.longitude),
-        ),
+    // 🚀 NEW: Use a single FutureBuilder to fetch all data once
+    return FutureBuilder<_CombinedData>(
+      future: _combinedDataFuture,
+      builder: (context, snapshot) {
+        final isReady = snapshot.hasData;
+        final data = snapshot.data;
 
-        // Call button with a colored icon
-        _ContactIconButton(
-          label: 'Call',
-          icon: FontAwesomeIcons.phone,
-          iconColor: const Color(0xFF34A853), // A shade of green
-          future: _fetchPhoneNumber(),
-          onPressed: (phone) => _openPhone(phone),
-        ),
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            // Location button
+            _ContactIconButton(
+              label: 'Location',
+              assetImagePath: 'assets/google_maps_logo.png',
+              // 🚀 MODIFIED: Pass the GeoPoint directly
+              future: Future.value(data?.shopLocation ?? const GeoPoint(0, 0)),
+              onPressed: (location) => _openMap(location.latitude, location.longitude),
+            ),
 
-        // WhatsApp button with its brand color
-        _ContactIconButton(
-          label: 'WhatsApp',
-          icon: FontAwesomeIcons.whatsapp,
-          iconColor: const Color(0xFF25D366), // Official WhatsApp green
-          future: _fetchWhatsappNumber(),
-          onPressed: (whatsapp) => _openWhatsApp(whatsapp),
-        ),
-      ],
+            // Call button
+            _ContactIconButton(
+              label: 'Call',
+              icon: FontAwesomeIcons.phone,
+              iconColor: const Color(0xFF34A853),
+              // 🚀 MODIFIED: Pass the phone number directly
+              future: Future.value(data?.phoneNumber ?? 'N/A'),
+              onPressed: (phone) => _openPhone(phone),
+            ),
+
+            // WhatsApp button
+            _ContactIconButton(
+              label: 'WhatsApp',
+              icon: FontAwesomeIcons.whatsapp,
+              iconColor: const Color(0xFF25D366),
+              // 🚀 MODIFIED: Pass the whatsapp number directly
+              future: Future.value(data?.whatsappNumber ?? 'N/A'),
+              onPressed: (whatsapp) => _openWhatsApp(whatsapp),
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildLeftColumn() {
+    final datesFuture = _fetchBookingDates();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        FutureBuilder<String>(
-          future: _fetchBookingDate(),
-          builder: (ctx, snap) => _buildDetailRow(label: "Date of Booking:", value: snap.data ?? '...'),
-        ),
+        FutureBuilder<Map<String, String>>(
+          future: datesFuture,
+          builder: (ctx, snap) {
+            final data = snap.data;
 
+            final creationTime = data?['creationDate'] ?? '...';
+            final confirmationTime = data?['confirmationDate'] ?? '...';
+
+            if (snap.connectionState == ConnectionState.waiting) {
+              return _buildDetailRow(label: "Requested On:", value: '...');
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Booking Creation Time (Request Time)
+                _buildDetailRow(
+                  label: "Requested On:",
+                  value: creationTime,
+                  // REMOVED: labelStyle: GoogleFonts.poppins(...)
+                  // REMOVED: valueStyle: GoogleFonts.poppins(...)
+                ),
+
+                const SizedBox(height: 6),
+
+                // 2. Booking Confirmation Time
+                _buildDetailRow(
+                  label: "Confirmed On:",
+                  value: confirmationTime,
+                  // REMOVED: labelStyle: GoogleFonts.poppins(...)
+                  // REMOVED: valueStyle: GoogleFonts.poppins(...)
+                ),
+              ],
+            );
+          },
+        ),
       ],
     );
   }
-
   Widget _buildDetailRow({required String label, required String value}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: GoogleFonts.poppins(fontSize: 14, color: ConfirmationPage.secondaryTextColor)),
+          // 1. Label Text Size Reduced to 12
+          Text(label, style: GoogleFonts.poppins(fontSize: 12, color: ConfirmationPage.secondaryTextColor)),
           const SizedBox(width: 4),
-          Expanded(child: Text(value, style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: ConfirmationPage.primaryTextColor))),
+          // 2. Value Text Size Reduced to 12
+          Expanded(child: Text(value, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: ConfirmationPage.primaryTextColor))),
         ],
       ),
     );
   }
-
 
   Widget _buildPinsSection() {
     return FutureBuilder<DocumentSnapshot>(
@@ -1429,41 +1663,155 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
         }
 
         final data = snapshot.data!.data() as Map<String, dynamic>;
+        final double fontSize = 10.0;
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             PinDisplayWidget(title: 'Start PIN', pin: data['startPinRaw'] ?? '----', isUsed: data['isStartPinUsed'] ?? false),
             const SizedBox(height: 8),
             PinDisplayWidget(title: 'End PIN', pin: data['endPinRaw'] ?? '----', isUsed: data['isEndPinUsed'] ?? false),
-
-            // --- INSERT THIS WIDGET HERE ---
-            // --- INSERT THIS WIDGET HERE ---
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final double fontSize = constraints.maxWidth < 360 ? 11.5 : 13.0;
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildBulletText(
-                        '• Ensure the service provider enters the PIN.',
-                        fontSize,
-                      ),
-                      const SizedBox(height: 6),
-                      _buildBulletText(
-                        '• If you don’t get a confirmation within 10 minutes, please reach out to us.',
-                        fontSize,
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
+            const SizedBox(height: 16),
+            _buildProfessionalNote(context),
           ],
         );
       },
+    );
+  }
+  Widget _buildProfessionalNote(BuildContext context) {
+    // Use a slightly larger font for better readability with icon bullets
+    const double contentFontSize = 10.0;
+
+    // Use a color with transparency for the background
+    final Color noteBackgroundColor = AppColors.primaryColor.withOpacity(0.08);
+
+    // Define a reusable style for the heading
+    final TextStyle headingStyle = GoogleFonts.poppins(
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      color: AppColors.primaryColor,
+    );
+
+    // Define a reusable style for the bullet icons
+    const Color bulletColor = AppColors.primaryColor;
+    const double iconSize = 10.0;
+
+    return Container(
+      padding: const EdgeInsets.all(12.0),
+      decoration: BoxDecoration(
+        color: noteBackgroundColor, // Background color with opacity
+        border: Border.all(
+          color: AppColors.primaryColor, // Primary color border
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(8.0), // Rounded corners
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. HEADING
+          Row(
+            children: [
+              const Icon(
+                FontAwesomeIcons.circleExclamation, // Info/Alert Icon
+                color: bulletColor,
+                size: 12,
+              ),
+              const SizedBox(width: 8),
+              Text("Note", style: headingStyle),
+            ],
+          ),
+
+          const Divider(height: 18, thickness: 0.5, color: bulletColor),
+
+          // 2. PIN ENTRY NOTE (with Font Awesome Bullet)
+          _buildIconBulletRow(
+            icon: FontAwesomeIcons.angleRight, // Solid, clean bullet point
+            text: 'Please ensure the **service provider** enters the **PIN for check-in**.',
+            fontSize: contentFontSize,
+            iconColor: bulletColor,
+          ),
+
+          const SizedBox(height: 8),
+
+          // 3. CONFIRMATION TIME NOTE (with Font Awesome Bullet)
+          // Inside _buildProfessionalNote...
+
+          _buildIconBulletRow(
+            icon: FontAwesomeIcons.angleRight,
+            text: 'If you do not receive a **confirmation from MyFellowPet regarding this booking** within 10 minutes, please contact support.',
+            fontSize: contentFontSize,
+            iconColor: bulletColor,
+          )
+
+// ...
+        ],
+      ),
+    );
+  }
+
+// ⚠️ NEW HELPER FUNCTION REQUIRED: _buildIconBulletRow
+// You must add this function to your class (e.g., SummaryPage or _SummaryPageState)
+  Widget _buildIconBulletRow({
+    required IconData icon,
+    required String text,
+    required double fontSize,
+    required Color iconColor,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2.0),
+          child: Icon(
+            icon,
+            size: 10.0,
+            color: iconColor,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildText(
+            text,
+            fontSize,
+          ),
+        ),
+      ],
+    );
+  }
+
+// NOTE: The _buildText function (which takes text and fontSize) is still required
+// to render the actual note content, as it was in your previous structure.
+
+  // Update this helper to use Text.rich for bolding
+  Widget _buildText(String text, double fontSize) {
+    // Define base style
+    final TextStyle baseStyle = GoogleFonts.poppins(
+      fontSize: fontSize,
+      color: ConfirmationPage.primaryTextColor, // Or suitable dark color
+    );
+
+    // Define bold style
+    final TextStyle boldStyle = baseStyle.copyWith(fontWeight: FontWeight.w700);
+
+    // Split the string based on the bold marker '**'
+    final parts = text.split('**');
+    final List<TextSpan> spans = [];
+
+    for (int i = 0; i < parts.length; i++) {
+      // Content outside of '**' is normal (0, 2, 4...)
+      if (i % 2 == 0) {
+        spans.add(TextSpan(text: parts[i], style: baseStyle));
+      }
+      // Content inside of '**' is bold (1, 3, 5...)
+      else {
+        spans.add(TextSpan(text: parts[i], style: boldStyle));
+      }
+    }
+
+    // Return the Text.rich widget
+    return Text.rich(
+      TextSpan(children: spans),
     );
   }
   Widget _buildBulletText(String text, double fontSize) {
@@ -2104,4 +2452,25 @@ class _TicketWidget extends StatelessWidget {
       ),
     );
   }
+}
+
+
+// --- NEW DATA MODEL ---
+class _CombinedData {
+  // Data from users-sp-boarding (Service Provider document)
+  final String areaName;
+  final GeoPoint shopLocation;
+  final String phoneNumber;
+  final String whatsappNumber;
+
+  // Data from company_documents/fees
+  final _FeesData fees;
+
+  _CombinedData({
+    required this.areaName,
+    required this.shopLocation,
+    required this.phoneNumber,
+    required this.whatsappNumber,
+    required this.fees,
+  });
 }

@@ -42,7 +42,7 @@ class SummaryPage extends StatefulWidget {
   final double adminFeeTotal;
   final double adminFeeGstTotal;
   static const routeName = '/summary';
-  final String serviceId, shopImage, shopName, walkingFee, sp_id, bookingId;
+  final String serviceId, gstNumber, shopImage, shopName, walkingFee, sp_id, bookingId;
   final DateTime? startDate, endDate;
   final List<Map<String, dynamic>> petCostBreakdown;
   final double totalCost;
@@ -50,6 +50,7 @@ class SummaryPage extends StatefulWidget {
   final bool? dailyWalkingRequired, pickupRequired, dropoffRequired;
   final String transportVehicle, openTime, closeTime, areaName, foodOption;
   final List<String> petIds, petNames, petImages;
+  final bool gstRegistered;
   final int numberOfPets, availableDaysCount;
   final List<DateTime> selectedDates;
   final GeoPoint sp_location;
@@ -105,7 +106,20 @@ class SummaryPage extends StatefulWidget {
     required this.petSizesList,
     required this.boarding_rate,
     required this.dailyRates,
-    required this.petCostBreakdown, required this.spServiceFeeExcGst, required this.spServiceFeeIncGst, required this.gstOnSpService, required this.platformFeeExcGst, required this.platformFeeIncGst, required this.gstOnPlatformFee, required this.totalAmountPaid, required this.remainingRefundableAmount, required this.totalRefundedAmount, required this.adminFeeTotal, required this.adminFeeGstTotal, required this.areaNameOnly,
+    required this.petCostBreakdown,
+    required this.spServiceFeeExcGst,
+    required this.spServiceFeeIncGst,
+    required this.gstOnSpService,
+    required this.platformFeeExcGst,
+    required this.platformFeeIncGst,
+    required this.gstOnPlatformFee,
+    required this.totalAmountPaid,
+    required this.remainingRefundableAmount,
+    required this.totalRefundedAmount,
+    required this.adminFeeTotal,
+    required this.adminFeeGstTotal,
+    required this.areaNameOnly,
+    required this.gstNumber, required this.gstRegistered,
   });
 
   @override
@@ -132,18 +146,9 @@ class _SummaryPageState extends State<SummaryPage> {
   late final Future<_FeesData> _feesFuture;
   late final List<DateTime> _sortedDates;
   late Map<String, String> cancellationReasonsMap = {};
-  late bool gstRegistered = true;
   late bool checkoutEnabled = true;
   bool _showPetBreakdown = false; // State for invoice expansion
 
-  Future<void> _fetchGstFlag() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users-sp-boarding')
-        .doc(widget.serviceId)
-        .get();
-
-    gstRegistered = doc.data()?['gst_registered'] == true;
-  }
   Future<void> _fetchCheckOutEnabledFlag() async {
     final doc = await FirebaseFirestore.instance
         .collection('company_documents')
@@ -170,7 +175,6 @@ class _SummaryPageState extends State<SummaryPage> {
   @override
   void initState() {
     super.initState();
-    _fetchGstFlag();
     _fetchCheckOutEnabledFlag();
     _fetchGlobalLastPaymentMethod();
 
@@ -897,10 +901,10 @@ class _SummaryPageState extends State<SummaryPage> {
       }
 
       final double grandTotal = (checkoutEnabled)
-          ? widget.totalAmountPaid - (gstRegistered ? 0.0 : widget.gstOnSpService)
+          ? widget.totalAmountPaid - (widget.gstRegistered ? 0.0 : widget.gstOnSpService)
           : widget.totalAmountPaid
           - widget.platformFeeIncGst
-          - (gstRegistered ? 0.0 : widget.gstOnSpService);
+          - (widget.gstRegistered ? 0.0 : widget.gstOnSpService);
 
 
       final int amountPaise = (grandTotal * 100).toInt();
@@ -940,14 +944,15 @@ class _SummaryPageState extends State<SummaryPage> {
         'user_confirmation': true,
         'user_t&c_acceptance': true,
         'confirmed_at': FieldValue.serverTimestamp(),
-        'gstRegistered': gstRegistered,
+        'gstRegistered': widget.gstRegistered,
         'checkoutEnabled': checkoutEnabled,
         ...pinData,
       }, SetOptions(merge: true));
 
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ConfirmationPage(
-        gstRegistered: gstRegistered,
+        gstNumber:widget.gstNumber,
+        gstRegistered: widget.gstRegistered,
         checkoutEnabled: checkoutEnabled,
         dailyRates: widget.dailyRates,
         perDayServices: widget.perDayServices,
@@ -994,7 +999,7 @@ class _SummaryPageState extends State<SummaryPage> {
     double newBoardingCost = 0.0;
     final datesCount = widget.selectedDates.length;
     for (final pet in widget.petSizesList) { newBoardingCost += (pet['price'] as double? ?? 0.0) * datesCount; }
-    final double grandTotal = (checkoutEnabled) ? widget.totalAmountPaid - (gstRegistered ? 0.0 : widget.gstOnSpService) : widget.totalAmountPaid - widget.platformFeeIncGst - (gstRegistered ? 0.0 : widget.gstOnSpService);
+    final double grandTotal = (checkoutEnabled) ? widget.totalAmountPaid - (widget.gstRegistered ? 0.0 : widget.gstOnSpService) : widget.totalAmountPaid - widget.platformFeeIncGst - (widget.gstRegistered ? 0.0 : widget.gstOnSpService);
     final int amountInPaise = (grandTotal * 100).toInt();
     final snap = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     final d = snap.data() ?? {};
@@ -1023,7 +1028,7 @@ class _SummaryPageState extends State<SummaryPage> {
         'user_confirmation': true,
         'user_t&c_acceptance': true,
         'confirmed_at': FieldValue.serverTimestamp(),
-        'gstRegistered': gstRegistered,
+        'gstRegistered': widget.gstRegistered,
         'checkoutEnabled': checkoutEnabled,
       });
       // 🌍 Save globally for user
@@ -1041,7 +1046,8 @@ class _SummaryPageState extends State<SummaryPage> {
 
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ConfirmationPage(
-        gstRegistered: gstRegistered,
+        gstRegistered: widget.gstRegistered,
+        gstNumber:widget.gstNumber,
         checkoutEnabled: checkoutEnabled,
         perDayServices: widget.perDayServices,
         boarding_rate: widget.boarding_rate,
@@ -1135,6 +1141,7 @@ class _SummaryPageState extends State<SummaryPage> {
             }
           },
           child: Scaffold(
+
             appBar: buildHeaderAppBar(
               context,
               widget.shopName,
@@ -1142,7 +1149,7 @@ class _SummaryPageState extends State<SummaryPage> {
               widget.serviceId,
             ),
 
-            backgroundColor: const Color(0xfff1f1f1),
+            backgroundColor: Colors.white,
 
             body: SingleChildScrollView(
               padding: const EdgeInsets.only(bottom: 100.0),
@@ -1155,13 +1162,10 @@ class _SummaryPageState extends State<SummaryPage> {
                     _buildRejectionNotice()
                   else
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                      padding: const EdgeInsets.symmetric(horizontal: 0.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const SizedBox(height: 12),
-                          _buildEmbeddedBookingDetails(),
-                          const SizedBox(height: 9),
                           _buildEmbeddedInvoice(),
                         ],
                       ),
@@ -1367,6 +1371,153 @@ class _SummaryPageState extends State<SummaryPage> {
       ),
     );
   }
+  bool _showAllPets = false;
+
+  Widget _buildEmbeddedBookingDetailsInInvoice() {
+    final totalPets = widget.petIds.length;
+    final hasMorePets = totalPets > 1;
+
+    return Card(
+      color: Colors.white,
+      elevation: 0,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 0, bottom: 0),
+            child: Column(
+              children: [
+                /// -------------------------------------
+                /// 1️⃣ SHOW PETS
+                /// -------------------------------------
+
+                /// Show only 1 if collapsed
+                _buildPetTile(0),
+
+                /// Show rest only when expanded
+                if (_showAllPets)
+                  ...List.generate(
+                    totalPets - 1,
+                        (i) => _buildPetTile(i + 1),
+                  ),
+
+                /// -------------------------------------
+                /// 2️⃣ SHOW MORE / SHOW LESS (AT BOTTOM)
+                /// -------------------------------------
+                if (hasMorePets)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _showAllPets = !_showAllPets);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _showAllPets ? "Show less" : "Show more",
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: Colors.black87,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            _showAllPets
+                                ? Icons.keyboard_arrow_up
+                                : Icons.keyboard_arrow_down,
+                            size: 15,
+                            color: AppColors.primaryColor,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildPetTile(int index) {
+    final petId = widget.petIds[index];
+    final petName = widget.petNames[index];
+    final petImage = widget.petImages[index];
+    final petServiceDetails = widget.perDayServices[petId];
+
+    if (petServiceDetails == null) return const SizedBox.shrink();
+
+    final dailyDetails =
+    petServiceDetails['dailyDetails'] as Map<String, dynamic>;
+    final sortedDatesForPet = dailyDetails.keys.toList()..sort();
+
+    return ExpansionTile(
+      iconColor: Colors.black87,
+      collapsedIconColor: Colors.black87,
+      leading: CircleAvatar(
+        backgroundImage: NetworkImage(petImage),
+        radius: 18,
+      ),
+      title: Text(
+        petName,
+        style: GoogleFonts.poppins(
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          color: Colors.black87,
+        ),
+      ),
+      subtitle: Text(
+        "${dailyDetails.length} days",
+        style: GoogleFonts.poppins(
+          fontSize: 12,
+          color: Colors.grey.shade600,
+        ),
+      ),
+      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      minTileHeight: 0,
+      shape: const Border(),
+
+      children: [
+        ...sortedDatesForPet.map((dateString) {
+          final date = DateFormat('yyyy-MM-dd').parse(dateString);
+          final details = dailyDetails[dateString] as Map<String, dynamic>;
+
+          final hasMeal = details['meals'] == true;
+          final hasWalk = details['walk'] == true;
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4.0),
+            child: Row(
+              children: [
+                Text(
+                  DateFormat('EEE, dd MMM').format(date),
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: Colors.black87,
+                  ),
+                ),
+                const Spacer(),
+                if (hasMeal)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Icon(Icons.restaurant_menu, size: 14),
+                  ),
+                if (hasWalk)
+                  const Icon(Icons.directions_walk, size: 14),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+
   PreferredSizeWidget buildHeaderAppBar(
       BuildContext context,
       String shopName,
@@ -1663,6 +1814,49 @@ class _SummaryPageState extends State<SummaryPage> {
     );
   }*/
 
+  Widget _smallDetailText(String text) {
+    return Align(
+
+      alignment: Alignment.center,   // 🔥 Forces left alignment
+      child: Text(
+        text,
+        textAlign: TextAlign.left,       // 🔥 Makes multi-line left aligned
+        style: GoogleFonts.poppins(
+          fontSize: 11,                  // smaller clean text
+          color: Colors.black87,
+        ),
+      ),
+    );
+  }
+  Future<Map<String, String>> _fetchBookingDates() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('users-sp-boarding')
+        .doc(widget.serviceId)
+        .collection('service_request_boarding')
+        .doc(widget.bookingId)
+        .get();
+
+    const String unknown = 'Unknown date';
+    final Map<String, String> results = {
+      'creationDate': unknown,
+    };
+
+    if (!doc.exists) return results;
+    final data = doc.data();
+    if (data == null) return results;
+
+    final formatter = DateFormat('dd MMM yyyy, hh:mm a');
+
+    // 1. Retrieve Booking Creation Time ('timestamp')
+    final rawCreation = data['timestamp'];
+    if (rawCreation is Timestamp) {
+      results['creationDate'] = formatter.format(rawCreation.toDate());
+    }
+
+
+    return results;
+  }
+
 
   Widget _buildEmbeddedInvoice() {
     return FutureBuilder<_FeesData>(
@@ -1687,136 +1881,235 @@ class _SummaryPageState extends State<SummaryPage> {
             .fold(0.0, (p, m) => p + (m['totalWalkingCost'] as double? ?? 0.0));
 
         final double serviceGst =
-        gstRegistered ? widget.gstOnSpService : 0.0;
-        // 1. Core Service Cost (Boarding + Meal + Walk)
-        double serviceSubtotal = newBoardingCost + newMealsCost + newWalkingCost;
+        widget.gstRegistered ? widget.gstOnSpService : 0.0;
 
-        // 2. Add Service Provider's GST (only if registered)
-        double serviceGstComponent = gstRegistered ? widget.gstOnSpService : 0.0;
+        double serviceSubtotal =
+            newBoardingCost + newMealsCost + newWalkingCost;
 
-        // 3. Add Platform Fee components (only if checkout is ENABLED)
-        double platformFeeComponent = checkoutEnabled ? (widget.platformFeeExcGst + widget.gstOnPlatformFee) : 0.0;
+        double serviceGstComponent =
+        widget.gstRegistered ? widget.gstOnSpService : 0.0;
 
-        // 4. Final calculation based on components
-        double overallTotal = serviceSubtotal + serviceGstComponent + platformFeeComponent;
+        double platformFeeComponent = checkoutEnabled
+            ? (widget.platformFeeExcGst + widget.gstOnPlatformFee)
+            : 0.0;
+        final datesFuture = _fetchBookingDates();
 
-        return Card(
-          elevation: 0.8,
-          shadowColor: AppColors.primaryColor.withOpacity(0.25),
-          color: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
 
-              // 🔵 TOP TITLE STRIP
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryColor,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    topRight: Radius.circular(16),
-                  ),
-                ),
-                child: Text(
-                  "Invoice Summary",
-                  style: GoogleFonts.poppins(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
+        double overallTotal =
+            serviceSubtotal + serviceGstComponent + platformFeeComponent;
 
-              // 🔽 MAIN CONTENT
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-                child: Column(
-                  children: [
-                    _buildItemRow("Boarding Fee", newBoardingCost),
-                    if (newMealsCost > 0)
-                      _buildItemRow("Meal Fee", newMealsCost),
-                    if (newWalkingCost > 0)
-                      _buildItemRow("Walking Fee", newWalkingCost),
+        return Transform.scale(
+          scale: 0.93, // 🔥 entire invoice shrunk
+          child: Card(
+            shadowColor: AppColors.black.withOpacity(0.25),
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.black87.withOpacity(0.3)),
+            ),
 
-                    if (gstRegistered || checkoutEnabled) ...[
-                      const SizedBox(height: 10),
-                      Divider(color: Colors.grey.shade300),
-                      const SizedBox(height: 10),
-                    ],
+            // ❗ NO OUTER PADDING HERE
+            // ✔ Card now sits flush in parent
 
-                    if (gstRegistered)
-                      _buildItemRow(
-                        "GST (${fees.gstPercentage.toStringAsFixed(0)}%) on Service",
-                        serviceGst,
-                      ),
-
-                    if (checkoutEnabled) ...[
-                      _buildItemRow("Platform Fee", widget.platformFeeExcGst),
-                      _buildItemRow("GST on Platform Fee", widget.gstOnPlatformFee),
-                    ],
-
-                    const SizedBox(height: 12),
-        Divider(color: darkColor, thickness: 1.5, height: 25), // Strong divider
-                    // Calculate the final Grand Total
-                    // This uses the widget's pre-calculated total cost, which should include all component fees, transport, and initial GST.
-                    _buildItemRow(
-                      "Overall Total",
-                      overallTotal, // 🚨 Use the manually calculated total
-                      isTotal: true,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 🔵 TOP TITLE STRIP
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 10, horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryColor,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
                     ),
+                  ),
+                  child: Text(
+                    "Invoice Summary",
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
+                  child: Center(
+                    child: Text(
+                      widget.shopName,
+                      maxLines: 4,                     // 🔥 limit to 4 lines
+                      overflow: TextOverflow.ellipsis, // 🔥 ellipsis after 4 lines
+                      softWrap: true,                  // 🔥 wrap safely
+                      textAlign: TextAlign.center,     // optional: keep centered
+                      style: GoogleFonts.poppins(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
 
-                    const SizedBox(height: 12),// Spacer before the toggle
+                if (widget.gstRegistered)
+                  _smallDetailText("GST No. ${widget.gstNumber}"),
 
-                    // 🔽 Toggle Per Pet Breakdown
-                    InkWell(
-                      onTap: () => setState(
-                              () => _showPetBreakdown = !_showPetBreakdown),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _showPetBreakdown
-                                ? "Hide Details"
-                                : "View Details",
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                FutureBuilder<Map<String, String>>(
+                  future: datesFuture,
+                  builder: (ctx, snap) {
+                    final data = snap.data;
+                    final creationTime = data?['creationDate'] ?? '...';
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,  // 🔥 centers the block
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _smallDetailText("Requested On: $creationTime"),
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                    );
+                  },
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                  child: Divider(
+                    color: darkColor,
+                    thickness: 2.5,
+                    height: 25,
+                  ),
+                ),
+
+                _buildEmbeddedBookingDetailsInInvoice(),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                  child : Divider(color: Colors.grey.shade300),
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 3, 16, 20),
+                  child: Column(
+                    children: [
+                      _buildItemRow("Boarding Fee", newBoardingCost),
+                      if (newMealsCost > 0)
+                        _buildItemRow("Meal Fee", newMealsCost),
+                      if (newWalkingCost > 0)
+                        _buildItemRow("Walking Fee", newWalkingCost),
+
+                      const SizedBox(height: 4),
+
+                      InkWell(
+                        onTap: () => setState(
+                                () => _showPetBreakdown = !_showPetBreakdown),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _showPetBreakdown
+                                  ? "Hide Price Breakdown"
+                                  : "Show Price Breakdown",
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: Colors.black87,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Icon(
+                              _showPetBreakdown
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                              size: 15,
                               color: AppColors.primaryColor,
                             ),
-                          ),
-                          Icon(
-                            _showPetBreakdown
-                                ? Icons.expand_less
-                                : Icons.expand_more,
-                            size: 18,
-                            color: AppColors.primaryColor,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
 
-                    AnimatedCrossFade(
-                      firstChild: const SizedBox.shrink(),
-                      secondChild: Column(
-                        children: [_buildPerPetDailyBreakdown()],
+                      AnimatedCrossFade(
+                        firstChild: const SizedBox.shrink(),
+                        secondChild:
+                        Column(children: [_buildPerPetDailyBreakdown()]),
+                        crossFadeState: _showPetBreakdown
+                            ? CrossFadeState.showSecond
+                            : CrossFadeState.showFirst,
+                        duration: const Duration(milliseconds: 300),
                       ),
-                      crossFadeState: _showPetBreakdown
-                          ? CrossFadeState.showSecond
-                          : CrossFadeState.showFirst,
-                      duration: const Duration(milliseconds: 300),
-                    ),
-                  ],
+
+                      if (widget.gstRegistered || checkoutEnabled) ...[
+                        const SizedBox(height: 10),
+                        Divider(color: Colors.grey.shade300),
+                        const SizedBox(height: 10),
+                      ],
+
+                      if (widget.gstRegistered)
+                        _buildItemRow(
+                          "GST (${fees.gstPercentage.toStringAsFixed(0)}%) on Service",
+                          serviceGst,
+                        ),
+
+                      if (checkoutEnabled) ...[
+                        _buildItemRow(
+                            "Platform Fee", widget.platformFeeExcGst),
+                        _buildItemRow(
+                            "GST on Platform Fee", widget.gstOnPlatformFee),
+                      ],
+
+                      Divider(color: darkColor, thickness: 1.5, height: 25),
+
+                      _buildItemRow(
+                        "Overall Total",
+                        overallTotal,
+                        isTotal: true,
+                      ),
+
+                      if (!checkoutEnabled)
+                        Container(
+                          width: double.infinity,
+                          alignment: Alignment.center,
+                          padding:
+                          const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                          child: Text(
+                            "This payment must be made directly to the boarder.",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              fontSize: 10,
+                              color: Colors.grey.shade900,
+                            ),
+                          ),
+                        ),
+
+                      SizedBox(height: 8),
+
+
+
+
+                      Center(
+                        child: Text(
+                          "Thank you!",
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
     );
   }
+
 
   Widget _bottomBar(BuildContext context) {
     return StreamBuilder<DocumentSnapshot>(
@@ -1837,9 +2130,9 @@ class _SummaryPageState extends State<SummaryPage> {
 
         double grandTotal;
         if (checkoutEnabled) {
-          grandTotal = widget.totalAmountPaid - (gstRegistered ? 0.0 : widget.gstOnSpService);
+          grandTotal = widget.totalAmountPaid - (widget.gstRegistered ? 0.0 : widget.gstOnSpService);
         } else {
-          grandTotal = widget.totalAmountPaid - widget.platformFeeIncGst - (gstRegistered ? 0.0 : widget.gstOnSpService);
+          grandTotal = widget.totalAmountPaid - widget.platformFeeIncGst - (widget.gstRegistered ? 0.0 : widget.gstOnSpService);
         }
 
         return Container(

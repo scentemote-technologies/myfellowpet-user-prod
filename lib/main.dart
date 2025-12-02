@@ -500,7 +500,8 @@ class AuthGate extends StatelessWidget {
             petSizesList: petSizesList,
 
             // ✨ NEW: Retrieve and pass the petCostBreakdown array
-            petCostBreakdown: List<Map<String, dynamic>>.from(data['petCostBreakdown'] ?? []),
+            petCostBreakdown: List<Map<String, dynamic>>.from(data['petCostBreakdown'] ?? []), 
+            gstNumber: data['gst_number'] ?? 'NA', gstRegistered: data['gst_registered'] ?? false,
           );
         }
       } catch (e, st) {

@@ -71,6 +71,9 @@ class _AccountsPageState extends State<AccountsPage> {
       // appBar has been removed.
       backgroundColor: AppColors.background,
       body: SingleChildScrollView(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).padding.bottom + 40,
+        ),
         // The top padding is removed from here.
         child: Column(
           children: [
@@ -568,11 +571,149 @@ class _AccountsPageState extends State<AccountsPage> {
                 message: 'Are you sure you want to log out?',
               ),
             ),
+            Divider(),
+
+            ListTile(
+              leading: Icon(Icons.delete, color: AppColors.error),
+              title: Text(
+                'Delete Account',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              onTap: () {
+                _showDeleteAccountDialog(context);
+              },
+
+            ),
           ],
         ),
       ),
     );
   }
+
+  void _showDeleteAccountDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+
+                Icon(Icons.warning_amber_rounded,
+                    size: 48, color: Colors.red.shade600),
+
+                const SizedBox(height: 16),
+
+                Text(
+                  "Delete Your Account?",
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+
+                const SizedBox(height: 12),
+
+                Text(
+                  "This action is permanent. You will be redirected to the account deletion page.",
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.grey.shade700,
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+
+                const SizedBox(height: 24),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    // CANCEL BUTTON
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: Text(
+                        "Cancel",
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 8),
+
+                    // PROCEED BUTTON
+                    ElevatedButton(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+
+                        try {
+                          final doc = await FirebaseFirestore.instance
+                              .collection('settings')
+                              .doc('links')
+                              .get();
+
+                          final deleteLink = doc.data()?['delete_user_account'];
+
+                          if (deleteLink == null || deleteLink.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Something went wrong. Try again.')),
+                            );
+                            return;
+                          }
+
+                          final uri = Uri.parse(deleteLink);
+
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Something went wrong. Try again.')),
+                            );
+                          }
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Something went wrong. Try again.')),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade600,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 10),
+                      ),
+                      child: Text(
+                        "Proceed",
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   void _showWarningDialog({
     required BuildContext context,

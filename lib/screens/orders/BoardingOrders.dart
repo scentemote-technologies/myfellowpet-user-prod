@@ -2243,6 +2243,8 @@ class _ConfirmedBookingsNavState extends State<ConfirmedBookingsNav> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => ConfirmationPage(
+                        gstNumber:data['gst_number'] ?? "NA",
+
                         gstRegistered: data['gstRegistered'] ?? false,
                         checkoutEnabled: data['checkoutEnabled'] ?? false,
                         boarding_rate: boardingCost,
