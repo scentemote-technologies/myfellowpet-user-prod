@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+18
+version: 1.0.0+19
 
 environment:
   sdk: ^3.7.0
@@ -146,22 +146,16 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/BottomBarBoarding/StoreInactiveIcon.png
-    - assets/BottomBarBoarding/StoreActiveIcon.png
-    - assets/WhatsApp Image 2025-04-08 at 19.44.14_47f71c92.jpg
     - assets/recaptcha.html
     - assets/niceeee.png
     - assets/BottomBarBoarding/BottomBarBoardingInactive.png
     - assets/BottomBarBoarding/BottomBarBoardingActive.png
     - assets/google_maps_logo.png
     - assets/mobile_application_logo.png
-    - assets/CertifiedLogo.png
     - assets/appcoverlogo.png
     - assets/applogofinalhomescreen.png
-    - assets/blackpic.jpg
     - assets/Loaders/App_Loader.json
     - assets/skeletoncompanylogo.png
-    - assets/petgroomingbottom.png
     - assets/yourpetsbottombar.png
     - assets/web_app_logo.png
     - assets/yourpetsbottombarinactive.jpg
@@ -170,10 +164,6 @@ flutter:
     - assets/ordersbottombaractive.png
     - assets/companylogo.png
     - assets/applogofinal.jpg
-    - assets/Boarding.png
-    - assets/pic.jpg
-    - assets/flex.jpg
-    - assets/summary_boarding.mp4
 
   # To add assets to your application, add an assets section, like this:
   # assets:

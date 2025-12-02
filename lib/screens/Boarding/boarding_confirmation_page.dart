@@ -532,7 +532,6 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     );
   }
 
-
 // Inside _ConfirmationPageState
   void _showInvoiceDialog() {
     showModalBottomSheet(
@@ -540,63 +539,51 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        bool showPetDetails = false;
-
-        // 1. --- FUTURE BUILDER WRAPS EVERYTHING ---
         return FutureBuilder<_CombinedData>(
           future: _combinedDataFuture,
           builder: (context, snap) {
             if (!snap.hasData) {
-              return Center(
-                child: Container(
-                  height: 150,
-                  width: 150,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Center(
-                      child: CircularProgressIndicator(
-                          color: ConfirmationPage.accentColor)),
-                ),
+              return const Center(
+                child: CircularProgressIndicator(),
               );
             }
 
-            final _CombinedData combinedData = snap.data!;
-            final _FeesData fees = combinedData.fees;
-            final String gstNumber = widget.gstNumber ?? ''; // Assuming gstNumber field exists
+            final data = snap.data!;
+            final fees = data.fees;
 
-            // Pre-calculate costs (this logic remains outside the inner StateBuilder)
+            // Pre-calc
             final double newBoardingCost = widget.petCostBreakdown
                 .map<double>((m) => m['totalBoardingCost'] as double? ?? 0.0)
-                .fold(0.0, (prev, current) => prev + current);
+                .fold(0.0, (a, b) => a + b);
 
             final double newMealsCost = widget.petCostBreakdown
                 .map<double>((m) => m['totalMealCost'] as double? ?? 0.0)
-                .fold(0.0, (prev, current) => prev + current);
+                .fold(0.0, (a, b) => a + b);
 
             final double newWalkingCost = widget.petCostBreakdown
                 .map<double>((m) => m['totalWalkingCost'] as double? ?? 0.0)
-                .fold(0.0, (prev, current) => prev + current);
+                .fold(0.0, (a, b) => a + b);
 
-            final double serviceSubTotal =
+            final serviceSubTotal =
                 newBoardingCost + newMealsCost + newWalkingCost;
 
-            // 2. --- STATEFUL BUILDER (To handle showPetDetails toggle) ---
+            bool showPetDetails = false;
+            bool showAllPets = false;
+
             return StatefulBuilder(
               builder: (context, setState) {
-                final bool gstRegistered = widget.gstRegistered;
-                final bool checkoutEnabled = widget.checkoutEnabled;
+                final gstRegistered = widget.gstRegistered;
+                final checkoutEnabled = widget.checkoutEnabled;
 
-                double serviceGst = gstRegistered
+                final double serviceGst = gstRegistered
                     ? serviceSubTotal * (fees.gstPercentage / 100)
                     : 0.0;
 
-                double platformFeeTotal = checkoutEnabled
+                final double platformFeeTotal = checkoutEnabled
                     ? (fees.platformFeePreGst + fees.platformFeeGst)
                     : 0.0;
 
-                double grandTotal =
+                final double grandTotal =
                     serviceSubTotal + serviceGst + platformFeeTotal;
 
                 return DraggableScrollableSheet(
@@ -604,94 +591,117 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                   initialChildSize: 0.8,
                   minChildSize: 0.5,
                   maxChildSize: 0.95,
-                  builder: (context, scrollController) {
+                  builder: (context, controller) {
                     return Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(26)),
+                        const BorderRadius.vertical(top: Radius.circular(22)),
+                        border: Border.all(
+                          color: Colors.grey.shade300,
+                          width: 1.4,
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.15),
-                            blurRadius: 20,
+                            color: Colors.black.withOpacity(0.08),
+                            blurRadius: 12,
                             offset: const Offset(0, -4),
-                          ),
+                          )
                         ],
                       ),
                       child: Column(
                         children: [
-                          // 3. --- SHOP NAME & GSTIN CONTAINER (OUTSIDE LISTVIEW) ---
-                          // Replaces the two separate, empty Containers you had
+                          // HEADER STRIP
                           Container(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 12, horizontal: 20),
                             width: double.infinity,
-                            padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
-                            decoration: const BoxDecoration(
-                              color: Colors.transparent,
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryColor,
+                              borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(20)),
                             ),
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    widget.shopName,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                  // 🚀 Display GSTIN below shop name
-                                  if (gstRegistered)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(
-                                        'GSTIN: $gstNumber',
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
-                                          color: Colors.grey.shade600,
-                                        ),
-                                      ),
-                                    ),
-                                ],
+                            child: Text(
+                              "Invoice Summary",
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
-                          // --- END SHOP NAME / GSTIN ---
+
+                          // SHOP HEADER
+                          Padding(
+                            padding: const EdgeInsets.only(
+                                left: 16, right: 16, top: 14, bottom: 4),
+                            child: Column(
+                              children: [
+                                Text(
+                                  widget.shopName,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (gstRegistered)
+                                  Text(
+                                    "GSTIN: ${widget.gstNumber}",
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600),
+                                  ),
+                              ],
+                            ),
+                          ),
 
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                            padding:
+                            const EdgeInsets.symmetric(horizontal: 16.0),
                             child: Divider(
-                                color: darkColor,
-                                thickness: 2.5,
-                                height: 25), // Strong divider
+                              thickness: 2,
+                              color: Colors.grey.shade400,
+                            ),
                           ),
 
+                          // PET LIST CARD
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(0, 0, 0, 0),
-                            child: _buildEmbeddedBookingDetailsInInvoice(),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                    color: Colors.grey.shade300, width: 1),
+                                color: Colors.white,
+                              ),
+                              child: _buildEmbeddedBookingDetailsInInvoice(
+                                showAllPets: showAllPets,
+                                toggleShowAllPets: () => setState(
+                                        () => showAllPets = !showAllPets),
+                              ),
+                            ),
                           ),
-                          Divider(color: Colors.grey.shade300),
 
-                          // 4. --- CONTENT LISTVIEW ---
+                          Divider(color: Colors.grey.shade300, thickness: 1),
+
                           Expanded(
                             child: ListView(
-                              controller: scrollController,
-                              padding: const EdgeInsets.fromLTRB(16, 3, 16, 20),
+                              controller: controller,
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
                               children: [
-                                _buildItemRow('Boarding Fee', newBoardingCost),
+                                _buildItemRow("Boarding Fee", newBoardingCost),
                                 if (newMealsCost > 0)
-                                  _buildItemRow('Meal Fee', newMealsCost),
+                                  _buildItemRow("Meal Fee", newMealsCost),
                                 if (newWalkingCost > 0)
-                                  _buildItemRow('Walking Fee', newWalkingCost),
+                                  _buildItemRow("Walking Fee", newWalkingCost),
 
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 8),
 
-                                // --- TOGGLE ---
+                                // PRICE BREAKDOWN TOGGLE
                                 Center(
                                   child: InkWell(
-                                    onTap: () => setState(
-                                            () => showPetDetails = !showPetDetails),
+                                    onTap: () => setState(() =>
+                                    showPetDetails = !showPetDetails),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
@@ -700,73 +710,66 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                                               ? "Hide Price Breakdown"
                                               : "Show Price Breakdown",
                                           style: GoogleFonts.poppins(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.grey.shade900,
-                                          ),
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600),
                                         ),
                                         const SizedBox(width: 4),
                                         Icon(
                                           showPetDetails
-                                              ? Icons.expand_less
-                                              : Icons.expand_more,
+                                              ? Icons.keyboard_arrow_up
+                                              : Icons.keyboard_arrow_down,
+                                          size: 18,
                                           color: AppColors.primaryColor,
-                                        ),
+                                        )
                                       ],
                                     ),
                                   ),
                                 ),
-                                const SizedBox(height: 10),
 
                                 AnimatedCrossFade(
-                                  firstChild: const SizedBox.shrink(),
+                                  firstChild: const SizedBox(),
                                   secondChild: _buildPerPetDailyBreakdown(),
                                   crossFadeState: showPetDetails
                                       ? CrossFadeState.showSecond
                                       : CrossFadeState.showFirst,
-                                  duration: const Duration(milliseconds: 300),
+                                  duration: const Duration(milliseconds: 250),
                                 ),
 
-                                if (gstRegistered || checkoutEnabled) ...[
-                                  const SizedBox(height: 10),
-                                  Divider(color: Colors.grey.shade300, thickness: 1),
-                                  const SizedBox(height: 10),
-                                ],
+                                if (gstRegistered || checkoutEnabled)
+                                  Column(
+                                    children: [
+                                      const SizedBox(height: 10),
+                                      Divider(
+                                          thickness: 1,
+                                          color: Colors.grey.shade300),
+                                      const SizedBox(height: 10),
+                                    ],
+                                  ),
+
                                 if (gstRegistered)
                                   _buildItemRow(
-                                      'GST (${fees.gstPercentage.toStringAsFixed(0)}%) on Service',
-                                      serviceGst),
-
-                                if (checkoutEnabled)
-                                  _buildItemRow('Platform Fee (Pre-GST)',
-                                      fees.platformFeePreGst),
+                                    "GST (${fees.gstPercentage.toStringAsFixed(0)}%)",
+                                    serviceGst,
+                                  ),
 
                                 if (checkoutEnabled)
                                   _buildItemRow(
-                                      'GST on Platform Fee', fees.platformFeeGst),
+                                      "Platform Fee (Pre-GST)",
+                                      fees.platformFeePreGst),
+                                if (checkoutEnabled)
+                                  _buildItemRow("GST on Platform Fee",
+                                      fees.platformFeeGst),
 
-                                const SizedBox(height: 14),
+                                const SizedBox(height: 12),
+
                                 Divider(
-                                    color: Colors.grey.shade400, thickness: 1.2),
-                                const SizedBox(height: 14),
+                                    thickness: 1.2,
+                                    color: Colors.grey.shade400),
 
-                                _buildItemRow('Overall Total', grandTotal,
+                                const SizedBox(height: 12),
+
+                                _buildItemRow("Overall Total", grandTotal,
                                     isTotal: true),
-
-                                if (!checkoutEnabled)
-                                  Container(
-                                    width: double.infinity,
-                                    alignment: Alignment.center,
-                                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                                    child: Text(
-                                      "This payment must be made directly to the boarder.",
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade900,
-                                      ),
-                                    ),
-                                  ),
                               ],
                             ),
                           ),
@@ -783,9 +786,13 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
     );
   }
 
-  bool _showAllPets = false;
 
-  Widget _buildEmbeddedBookingDetailsInInvoice() {
+
+  Widget _buildEmbeddedBookingDetailsInInvoice({
+    required bool showAllPets,
+    required VoidCallback toggleShowAllPets,
+  }) {
+
     final totalPets = widget.petIds.length;
     final hasMorePets = totalPets > 1;
 
@@ -807,7 +814,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                 _buildPetTile(0),
 
                 /// Show rest only when expanded
-                if (_showAllPets)
+                if (showAllPets)
                   ...List.generate(
                     totalPets - 1,
                         (i) => _buildPetTile(i + 1),
@@ -818,30 +825,27 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                 /// -------------------------------------
                 if (hasMorePets)
                   GestureDetector(
-                    onTap: () {
-                      setState(() => _showAllPets = !_showAllPets);
-                    },
+                    onTap: toggleShowAllPets,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 0),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            _showAllPets ? "Show less" : "Show more",
+                            showAllPets ? "Show less" : "Show more",
                             style: GoogleFonts.poppins(
-                              fontSize: 11,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
                               color: Colors.black87,
-                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          const SizedBox(width: 4),
+                          SizedBox(width: 4),
                           Icon(
-                            _showAllPets
-                                ? Icons.keyboard_arrow_up
-                                : Icons.keyboard_arrow_down,
-                            size: 15,
+                            showAllPets ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                            size: 18,
                             color: AppColors.primaryColor,
                           ),
+
                         ],
                       ),
                     ),
@@ -1257,10 +1261,19 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
 
         // Only run this logic if `fromSummary` is true
         if (widget.fromSummary) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-          Navigator.pushReplacement(context,
-              MaterialPageRoute(builder: (_) => HomeWithTabs()));
-          Future.microtask(() => _showTicketInfoDialog(context));
+          // 🚀 FIX: Use pushAndRemoveUntil to clear the entire stack
+          // and make HomeWithTabs the new root.
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => HomeWithTabs()),
+                (Route<dynamic> route) => false, // Clears ALL previous routes
+          );
+
+          // Schedule the dialog to show *after* the navigation is complete.
+          // We use Future.delayed to ensure the HomeWithTabs context is ready.
+          Future.delayed(Duration.zero, () {
+            _showTicketInfoDialog(context);
+          });
+
         } else {
           // Otherwise, just do a normal pop
           Navigator.of(context).pop();
@@ -1930,11 +1943,20 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                 ),
                 onPressed: () {
                   if (widget.fromSummary) {
-                    Navigator.of(context).popUntil((route) => route.isFirst);
-                    Navigator.pushReplacement(context,
-                        MaterialPageRoute(builder: (_) => HomeWithTabs()));
-                    Future.microtask(() => _showTicketInfoDialog(context));
+                    // 🚀 FIX: Use a single command to clear the stack and push the new route.
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => HomeWithTabs()),
+                          (Route<dynamic> route) => false, // This clears all routes
+                    );
+
+                    // Schedule the dialog to show *after* the navigation is complete
+                    // and the new HomeWithTabs context is stable.
+                    Future.delayed(Duration.zero, () {
+                      _showTicketInfoDialog(context);
+                    });
+
                   } else {
+                    // Otherwise, just do a normal pop
                     Navigator.of(context).pop();
                   }
                 },

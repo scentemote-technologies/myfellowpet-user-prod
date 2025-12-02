@@ -21,7 +21,6 @@ import '../../preloaders/PetsInfoProvider.dart';
 import '../../preloaders/distance_provider.dart';
 import '../../preloaders/favorites_provider.dart';
 import '../../preloaders/hidden_services_provider.dart';
-import '../AppBars/greeting_service.dart';
 import '../Search Bars/live_searchbar.dart';
 import '../Search Bars/search_bar.dart';
 import 'HeaderMedia.dart';

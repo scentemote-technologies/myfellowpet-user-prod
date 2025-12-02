@@ -333,68 +333,21 @@ class _UserOrderSupportPageState extends State<UserOrderSupportPage> {
   // It checks the screen width and calls the appropriate layout builder.
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < _mobileBreakpoint;
       return _buildMobileLayout();
   }
 
-  // ▼▼▼ NEW METHOD FOR THE MOBILE LAYOUT ▼▼▼
-  // ▼▼▼ NEW METHOD FOR THE MOBILE LAYOUT ▼▼▼
-  // ▼▼▼ NEW METHOD FOR THE MOBILE LAYOUT ▼▼▼
   Widget _buildMobileLayout() {
-    // When no chat is selected, show the chat creation form
-    if (_sessionId == null) {
-      return Scaffold(
-        key: _scaffoldKey,
-        appBar: AppBar(
-          automaticallyImplyLeading: false, // <-- Hides the automatic back arrow
-          elevation: 1,
-          backgroundColor: Colors.white,
-          centerTitle: true,
-          // ▼▼▼ UPDATED BUTTONS START HERE ▼▼▼
-          actions: [
-            /* ElevatedButton(
-              onPressed: () {
-                setState(() => _drawerContent = _buildLiveSessionsList());
-                _scaffoldKey.currentState?.openEndDrawer();
-              },
-              // Apply the new style here
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white, // White background
-                side: const BorderSide(color: Color(0xFF2CB4B6), width: 2), // Blue border
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              ),
-              child: Text(
-                'Live Sessions',
-                style: GoogleFonts.poppins(color: Colors.black, fontWeight: FontWeight.w500),
-              ),
-            ),
-            const SizedBox(width: 8),*/
 
-          ],
-          // ▼▼▼ UPDATED BUTTONS END HERE ▼▼▼
-        ),
-        endDrawer: Drawer(child: _drawerContent),
-        body: _buildChatSelectionUI(), // Uses a refactored widget
-
-      );
-    }
-
-    // Show a loader while session data is loading
     if (_loading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
-    // When a chat is selected, show the chat messages
-    // ... inside _buildMobileLayout()
-
-// When a chat is selected, show the chat messages
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
-        automaticallyImplyLeading: false, // Prevents the default back arrow
+        automaticallyImplyLeading: false,
         elevation: 1,
         backgroundColor: Colors.white,
         centerTitle: true,
@@ -403,12 +356,16 @@ class _UserOrderSupportPageState extends State<UserOrderSupportPage> {
           style: GoogleFonts.poppins(color: Colors.black87),
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () {
-            // Use context.go() to navigate back to the main chat page route
-          //  context.go('/partner/${widget.serviceId}/support');
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              Navigator.of(context, rootNavigator: true).pop();
+            }
           },
         ),
+
       ),
       body: _buildChatStreamUI(),
     );
@@ -416,230 +373,6 @@ class _UserOrderSupportPageState extends State<UserOrderSupportPage> {
 
 
 
-  // ▼▼▼ NEW WIDGET FOR THE CHAT SELECTION UI (FOR MOBILE) ▼▼▼
-  // ▼▼▼ UPDATED WIDGET FOR RESPONSIVE CHAT SELECTION UI ▼▼▼
-  // ▼▼▼ UPDATED WIDGET FOR MOBILE CHAT SELECTION UI (Search Mode) ▼▼▼
-  // ... (rest of the file content above _buildChatSelectionUI)
-
-  // ▼▼▼ UPDATED WIDGET FOR MOBILE CHAT SELECTION UI (Search Mode) ▼▼▼
-  Widget _buildChatSelectionUI() {
-    // We no longer need _orderOptions, _orderIds, _isManualEntryMode, or _ordersLoading
-    // in this UI as we are now using the search variables.
-
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // --- 1. MODE SELECTOR (Toggle Buttons) ---
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: ToggleButtons(
-                isSelected: SearchMode.values.map((mode) => mode == _currentSearchMode).toList(),
-                onPressed: (index) {
-                  setState(() {
-                    // **CRITICAL FIX:** Access the global state variable here
-                    _currentSearchMode = SearchMode.values[index];
-                    _searchErrorText = null;
-                    _searchQueryController.clear();
-                  });
-                },
-                borderRadius: BorderRadius.circular(8),
-                selectedColor: Colors.white,
-                fillColor: const Color(0xFF2CB4B6),
-                color: const Color(0xFF2CB4B6),
-                constraints: const BoxConstraints(minHeight: 40.0),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                    child: Text('Order ID', style: GoogleFonts.poppins()),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                    child: Text('Name', style: GoogleFonts.poppins()),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                    child: Text('10-Digit Number', style: GoogleFonts.poppins()),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // --- 2. SEARCH INPUT FIELD (Dynamically adapted) ---
-            TextFormField(
-              controller: _searchQueryController,
-              // Apply keyboard type and max length based on selected mode
-              keyboardType: _currentSearchMode == SearchMode.number ? TextInputType.number : TextInputType.text,
-              maxLength: _currentSearchMode == SearchMode.number ? 10 : null,
-              decoration: InputDecoration(
-                labelText: _currentSearchMode == SearchMode.orderId
-                    ? 'Enter Order ID'
-                    : (_currentSearchMode == SearchMode.name
-                    ? 'Enter Owner Name'
-                    : 'Enter 10-Digit Phone Number'),
-                hintText: _currentSearchMode == SearchMode.orderId
-                    ? ''
-                    : (_currentSearchMode == SearchMode.name
-                    ? ''
-                    : ''),
-                border: const OutlineInputBorder(
-                  borderSide: BorderSide(color: Color(0xFF2CB4B6), width: 2),
-                ),
-                enabledBorder: const OutlineInputBorder(
-                  borderSide: BorderSide(color: Color(0xFF2CB4B6), width: 2),
-                ),
-                focusedBorder: const OutlineInputBorder(
-                  borderSide: BorderSide(color: Color(0xFF2CB4B6), width: 2),
-                ),
-                errorText: _searchErrorText,
-                suffixIcon: _isSearching
-                    ? const Padding(padding: EdgeInsets.all(8.0), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
-                    : IconButton(
-                  icon: const Icon(Icons.search, color: Color(0xFF2CB4B6)),
-                  onPressed: _isSearching ? null : _searchOrders,
-                ),
-              ),
-              onFieldSubmitted: (_) => _searchOrders(),
-            ),
-            const SizedBox(height: 16),
-
-            // --- 3. FIND ORDERS BUTTON ---
-            OutlinedButton(
-              onPressed: _isSearching ? null : _searchOrders,
-              style: OutlinedButton.styleFrom(
-                backgroundColor: Colors.white,
-                side: const BorderSide(color: Color(0xFF2CB4B6), width: 2),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                minimumSize: const Size(double.infinity, 50),
-              ),
-              child: Text(
-                _isSearching ? 'Searching...' : 'Find Orders',
-                style: GoogleFonts.poppins(
-                  color: Colors.black,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            const SizedBox(height: 30),
-
-            // --- 4. SEARCH RESULTS LIST ---
-            if (_isSearching)
-              const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(strokeWidth: 2)))
-            else if (_searchResults.isNotEmpty) ...[
-              Text('Found ${_searchResults.length} matching orders:', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 8),
-
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _searchResults.length,
-                itemBuilder: (context, index) {
-                  final doc = _searchResults[index];
-                  final data = doc.data() as Map<String, dynamic>;
-
-                  // The subtitle now shows the Order ID and Phone Number
-                  final name = (data['user_name_lowercase'] as String? ?? 'Name N/A');
-                  final phone = data['phone_number'] as String? ?? 'Phone N/A';
-                  final orderId = doc.id;
-
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    child: ListTile(
-                      title: Text(name, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-                      subtitle: Text('$orderId | $phone', style: GoogleFonts.poppins(color: Colors.black54)),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () {
-              //          context.go('/partner/${widget.serviceId}/support/ticket/$orderId');
-                      },
-                    ),
-                  );
-                },
-              ),
-            ] else if (_searchErrorText != null)
-              Center(
-                child: Text(
-                  _searchErrorText!,
-                  style: GoogleFonts.poppins(color: Colors.red, fontSize: 16),
-                ),
-              )
-            else ...[
-                // Default information when no search has been performed
-                Text('Start a Chat:', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18)),
-                const SizedBox(height: 10),
-                ...[
-                  "Select the search type above (Order ID, Name, or 10-Digit Number).",
-                  "Chat support is limited to active and completed orders only.",
-                  "If the order is not found, please Request a Callback.",
-                ].map(
-                      (txt) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.info_outline, size: 18, color: Colors.grey),
-                        const SizedBox(width: 6),
-                        Expanded(child: Text(txt, style: GoogleFonts.poppins(fontSize: 13))),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                // Button to Request a Callback
-                OutlinedButton(
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: Text('Confirm Callback', style: GoogleFonts.poppins()),
-                        content: Text('Are you sure you want to request a callback?', style: GoogleFonts.poppins()),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.of(context).pop(), child: Text('No', style: GoogleFonts.poppins())),
-                          TextButton(
-                            onPressed: () async {
-                              await FirebaseFirestore.instance.collection('UserChatSessions').add({
-                                'participants': [_uid],
-                                'flowId': 'support_user_v1',
-                                'orderId': null,
-                                'createdAt': Timestamp.now(),
-                                'serviceId': widget.serviceId,
-                                'role': 'sp',
-                                'type': 'callback',
-                                'mark_as_closed': false,
-                              });
-                              if (mounted) Navigator.of(context).pop();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Callback requested – Admin will reach out soon.', style: GoogleFonts.poppins())),
-                              );
-                            },
-                            child: Text('Yes', style: GoogleFonts.poppins()),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.orange, width: 2),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    minimumSize: const Size(double.infinity, 50),
-                  ),
-                  child: Text(
-                    'Request a Callback',
-                    style: GoogleFonts.poppins(color: Colors.orange, fontWeight: FontWeight.w500, fontSize: 16),
-                  ),
-                ),
-              ],
-          ],
-        ),
-      ),
-    );
-  }
 
   Future<void> _searchOrders() async {
     final rawQuery = _searchQueryController.text.trim();

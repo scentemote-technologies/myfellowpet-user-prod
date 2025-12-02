@@ -17,10 +17,8 @@ import '../../app_colors.dart';
 import '../../main.dart'; // Assumed to contain HomeWithTabsState
 import '../../preloaders/TileImageProvider.dart';
 import '../../preloaders/petpreloaders.dart'; // Assumed to contain Pet and PetService
-import '../../services/vetprofile.dart';
 import '../AppBars/Accounts.dart';
 import '../AppBars/AllPetsPage.dart';
-import '../AppBars/greeting_service.dart';
 import '../Authentication/PhoneSignInPage.dart';
 import '../Boarding/OpenCloseBetween.dart';
 import '../Boarding/boarding_confirmation_page.dart';
