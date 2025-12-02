@@ -70,12 +70,19 @@ class _HeaderImageCarouselState extends State<HeaderImageCarousel> {
 
   Widget _buildHeader(BuildContext context) {
     final hour = DateTime.now().hour;
+
     String greeting = "Good Morning";
+
     if (hour >= 12 && hour < 17) {
       greeting = "Good Afternoon";
-    } else if (hour >= 17) {
+    } else if (hour >= 17 && hour < 19) {
       greeting = "Good Evening";
+    } else if (hour >= 19 && hour <= 23) {
+      greeting = "Hello";
+    } else {
+      greeting = "Good Morning"; // After midnight (0-11 AM)
     }
+
 
     final firstName = _userName.split(' ').first;
     final displayName =

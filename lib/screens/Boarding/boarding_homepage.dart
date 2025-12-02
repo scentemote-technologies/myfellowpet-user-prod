@@ -1346,7 +1346,6 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
                         const SizedBox(height: 12),
 
                         // At Offer Price
-                        // At Offer Price
                         _buildSwitchTile(
                           title: 'Special Offers',
                           icon: null, // <-- This is correctly set to null

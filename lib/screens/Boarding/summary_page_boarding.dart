@@ -19,6 +19,12 @@ import 'BoardingChatScreen.dart';
 import 'OpenCloseBetween.dart';
 import 'boarding_confirmation_page.dart';
 
+class CancellationReason {
+  final String code;
+  final String reason;
+  final int order;
+  CancellationReason(this.code, this.reason, this.order);
+}
 
 class SummaryPage extends StatefulWidget {
   final double spServiceFeeExcGst;
@@ -115,6 +121,9 @@ class _SummaryPageState extends State<SummaryPage> {
   static const Color backgroundColor = Color(0xFFF5F7FA);
 
   String? lastPaymentMethod;
+
+  // 💡 MODIFIED: Use the structured list instead of the simple map
+  late List<CancellationReason> _orderedCancellationReasons = [];
 // Slightly grey bg for cards
 
   bool _isProcessingPayment = false;
@@ -185,6 +194,8 @@ class _SummaryPageState extends State<SummaryPage> {
     super.dispose();
   }
 
+  // In _SummaryPageState
+
   Future<void> _fetchCancellationReasons() async {
     try {
       final doc = await FirebaseFirestore.instance
@@ -192,41 +203,107 @@ class _SummaryPageState extends State<SummaryPage> {
           .doc('tnc_cancellation_reasons')
           .get();
 
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
-        final boardingMap = data['boarding'] as Map<String, dynamic>?;
+      if (!doc.exists || doc.data() == null) {
+        _setHardcodedReasons();
+        return;
+      }
 
-        if (boardingMap != null) {
-          final Map<String, String> fetchedReasons = {};
-          boardingMap.forEach((key, value) {
-            fetchedReasons[key] = value as String;
-          });
-          if (mounted) {
-            setState(() {
-              cancellationReasonsMap = fetchedReasons;
-            });
+      final data = doc.data()!;
+      List<CancellationReason>? fetchedReasons;
+
+      // 1. Try to fetch the NEW, ORDERED ARRAY ('boardingReasons')
+      final boardingList = data['boardingReasons'] as List<dynamic>?;
+
+      if (boardingList != null) {
+        // SUCCESS: Data is in the new, ordered array format.
+        fetchedReasons = boardingList.map((item) {
+          final map = item as Map<String, dynamic>;
+          final dynamic rawOrder = map['order']; // Read as dynamic (could be String or int)
+
+          int parsedOrder = 999; // Default high order for safety
+
+          if (rawOrder is int) {
+            parsedOrder = rawOrder;
+          } else if (rawOrder is String) {
+            // Safely parse the string to an int
+            parsedOrder = int.tryParse(rawOrder) ?? 999;
           }
-        } else {
-          _setHardcodedReasons();
+
+          return CancellationReason(
+            map['code'] as String? ?? '',
+            map['reason'] as String? ?? '',
+            parsedOrder, // Use the parsed integer
+          );
+        }).toList();
+
+      } else {
+        // 2. FALLBACK: Try to fetch the OLD, UNORDERED MAP ('boarding')
+        final oldBoardingMap = data['boarding'] as Map<String, dynamic>?;
+
+        if (oldBoardingMap != null) {
+          // SUCCESS: Found the old map. Convert it into the new List<CancellationReason> model.
+          int order = 1; // Assign default order based on map iteration
+
+          fetchedReasons = oldBoardingMap.entries.map((entry) {
+            // Use the key as the code and the value as the reason.
+            return CancellationReason(
+              entry.key,
+              entry.value as String,
+              order++,
+            );
+          }).toList();
+        }
+      }
+
+      // 3. APPLY TO STATE IF DATA WAS FOUND
+      if (fetchedReasons != null && fetchedReasons.isNotEmpty) {
+        // Sort: Essential for the new list, and also helps stabilize the fallback list.
+        fetchedReasons.sort((a, b) => a.order.compareTo(b.order));
+
+        if (mounted) {
+          setState(() {
+            _orderedCancellationReasons = fetchedReasons!;
+
+            // Rebuild the cancellationReasonsMap for existing logic dependencies
+            cancellationReasonsMap = Map.fromIterable(
+              fetchedReasons!,
+              key: (r) => (r as CancellationReason).code,
+              value: (r) => (r as CancellationReason).reason,
+            );
+          });
         }
       } else {
+        // 4. FINAL FALLBACK: Hardcoded default
         _setHardcodedReasons();
       }
     } catch (e) {
+      // Catch any remaining parsing/network errors and use hardcoded values
+      debugPrint('Error fetching cancellation reasons: $e');
       _setHardcodedReasons();
     }
   }
 
+  // 💡 You must also update _setHardcodedReasons to return/set the CancellationReason list
   void _setHardcodedReasons() {
+    final hardcodedMap = {
+      'change_plans': 'Change of plans',
+      'cost_high': 'Cost was too high',
+      'sp_timeout': 'Service provider took too long to respond',
+      'admin_timeout': 'Admin took too long to respond',
+      'other': 'Other',
+    };
     if (mounted) {
       setState(() {
-        cancellationReasonsMap = {
-          'admin_timeout': 'Admin took too long to respond',
-          'change_plans': 'Change of plans',
-          'cost_high': 'Cost was too high',
-          'other': 'Other',
-          'sp_timeout': 'Service provider took too long to respond',
-        };
+        // Create an ordered list from the map using keys for default order
+        _orderedCancellationReasons = hardcodedMap.entries.toList()
+            .asMap().entries.map((entry) {
+          final index = entry.key;
+          final code = entry.value.key;
+          final reason = entry.value.value;
+          return CancellationReason(code, reason, index + 1);
+        }).toList();
+
+        cancellationReasonsMap = hardcodedMap; // Keep this for compatibility
       });
     }
   }
@@ -422,12 +499,15 @@ class _SummaryPageState extends State<SummaryPage> {
                     Flexible(
                       child: SingleChildScrollView(
                         child: Column(
-                          children: cancellationReasonsMap.keys.map((code) {
+                          children: _orderedCancellationReasons.map((reasonObj) {
+                            final code = reasonObj.code;
+                            final reasonText = reasonObj.reason;
+
                             return CheckboxListTile(
                               dense: true,
                               activeColor: AppColors.accentColor,
                               title: Text(
-                                cancellationReasonsMap[code]!,
+                                reasonText, // Use the human-readable reason
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   color: Colors.black87,

@@ -9,6 +9,7 @@ import 'package:recaptcha_enterprise_flutter/recaptcha_enterprise.dart';
 import 'package:recaptcha_enterprise_flutter/recaptcha_action.dart';
 
 // Placeholder imports (Replace with your actual paths)
+import '../../app_colors.dart';
 import '../HomeScreen/HomeScreen.dart';
 import '../../main.dart';
 
@@ -328,14 +329,10 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
     // If user entered an email but didn't verify it yet, block them.
     // If field is empty, let them pass.
     if (_emailCtl.text.trim().isNotEmpty && !_isEmailVerified) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please verify your email address or leave it empty.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      _showEmailVerificationDialog(context);
       return;
     }
+
 
     setState(() => _saving = true);
 
@@ -382,6 +379,93 @@ class _UserDetailsPageState extends State<UserDetailsPage> {
       if (mounted) setState(() => _saving = false);
     }
   }
+
+  void _showEmailVerificationDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 25, 20, 15),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                // Header
+                Row(
+                  children: [
+                    Icon(Icons.info_rounded, color: Colors.orange.shade700, size: 26),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        "Email Verification Required",
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 19,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // Message
+                Text(
+                  "Please verify your email address or leave it empty.",
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.grey.shade700,
+                    height: 1.4,
+                  ),
+                ),
+
+                const SizedBox(height: 25),
+
+                // Buttons
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: Text(
+                        "Close",
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryColor,
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: Text(
+                        "OK",
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   Widget _buildThemedTextFormField({
     required TextEditingController controller,

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../app_colors.dart';
 import '../HomeScreen/HomeScreen.dart';
 import 'FirstTimeUserLoginDeyts.dart';
 import 'OtpInputPage.dart';
@@ -28,16 +29,57 @@ class _PhoneAuthPageState extends State<PhoneAuthPage> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text('Error', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(msg, style: GoogleFonts.poppins()),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        contentPadding: const EdgeInsets.fromLTRB(24, 10, 24, 20),
+        actionsPadding: const EdgeInsets.fromLTRB(0, 0, 16, 10),
+
+        title: Row(
+          children: [
+            Icon(Icons.error_rounded, color: Colors.red.shade600, size: 26),
+            const SizedBox(width: 8),
+            Text(
+              'Error',
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Colors.red.shade600,
+              ),
+            ),
+          ],
+        ),
+
+        content: Text(
+          msg,
+          style: GoogleFonts.poppins(
+            fontSize: 14,
+            color: Colors.black87,
+            height: 1.4,
+          ),
+        ),
+
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('OK', style: GoogleFonts.poppins(color: _primaryColor)))
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            ),
+            child: Text(
+              'OK',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primaryColor,
+              ),
+            ),
+          )
         ],
       ),
     );
   }
+
 
   // NOTE: This _goNext function seems to be unused in the provided logic,
   // as navigation is handled after OTP verification in OtpInputPage.

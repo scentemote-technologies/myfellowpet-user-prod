@@ -2,10 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
-
-// Assuming these are your project's files and the paths are correct.
 import '../../app_colors.dart';
 import '../../preloaders/petpreloaders.dart';
+import '../Pets/AddPetPage.dart';
 import '../Pets/pet_profile.dart';
 import 'EditPetPage.dart';
 import 'PetRemoveReasonPage.dart';
@@ -321,6 +320,21 @@ class _AllPetsPageState extends State<AllPetsPage> {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          // Go to Add Pet page
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => AddPetPage()), // or your AddPetPage()
+          );
+        },
+        backgroundColor: AppColors.primaryColor,
+        elevation: 4,
+        shape: const CircleBorder(),
+        child: const Icon(Icons.add, color: Colors.white, size: 28),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+
     );
   }
 }

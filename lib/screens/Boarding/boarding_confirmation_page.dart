@@ -681,7 +681,7 @@ class _ConfirmationPageState extends State<ConfirmationPage> {
                                 Divider(color: Colors.grey.shade400, thickness: 1.2),
                                 const SizedBox(height: 14),
 
-                                _buildItemRow('Total Payable', grandTotal, isTotal: true),
+                                _buildItemRow('Overall Total', grandTotal, isTotal: true),
 
                                 const SizedBox(height: 16),
 

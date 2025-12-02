@@ -15,6 +15,8 @@ class AppColors {
   static const Color mfpYellowColor = Color(0xFFF9BB0E);
   static const Color backgroundColor = Color(0xFFF5F5F5);
   static const Color primary = Color(0xFF2CB4B6);
+  static const text = Colors.black87;
+
 
   /// A slightly darker variant of the primary brand color.
   static const Color primaryDark = Color(0xFF239A9B);
