@@ -9,8 +9,10 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../app_colors.dart';
+import '../../main.dart';
 import '../../preloaders/PetsInfoProvider.dart';
 import '../../preloaders/distance_provider.dart';
 import '../../preloaders/favorites_provider.dart';
@@ -122,6 +124,8 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
 
   String _companyName = '';
   String _description = '';
+  bool _showShareButton = false;
+
   bool _warningShown = false;
   String _serviceId = '';
 
@@ -666,6 +670,7 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
   @override
   void initState() {
     super.initState();
+    _loadShareButtonStatus();
     _dataFuture = _loadData();
     _fetchPetDocIds().then((_) {
       if (_selectedPet != null) {
@@ -676,6 +681,26 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
       _checkAndShowPetWarning(context);
     });
   }
+  Future<void> _loadShareButtonStatus() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('settings')
+          .doc('status')
+          .get();
+
+      final data = doc.data() ?? {};
+      final flag = data['show_share_boarding_andr'] ?? false;
+
+      if (mounted) {
+        setState(() {
+          _showShareButton = flag;
+        });
+      }
+    } catch (e) {
+      debugPrint("Failed to load share setting: $e");
+    }
+  }
+
 
   void _checkAndShowPetWarning(BuildContext context) {
     if (_warningShown) return;
@@ -1241,6 +1266,375 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
       ),
     );
   }
+
+  Future<void> _openMap(double lat, double lng) async {
+    final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      throw 'Could not launch $url';
+    }
+  }
+
+  void _openQuickActionsSheet(
+      BuildContext context,
+      Map<String, dynamic> ratingStats,
+      ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Title
+              Text(
+                "Quick Actions",
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+              ),
+
+              const SizedBox(height: 22),
+
+              // GRID
+              GridView(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  childAspectRatio: 0.85,   // perfect balance
+                  crossAxisSpacing: 18,
+                  mainAxisSpacing: 20,
+                ),
+                children: [
+                  _gridItem(
+                    child: _buildLikeButtonForSheet(),
+                    label: "Like",
+                  ),
+                  _gridItem(
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.pop(context); // close sheet
+                        _showTotalReviews(context, ratingStats);
+                      },
+                      child: RatingBadge(ratingStats: ratingStats),
+                    ),
+                    label: "Rating",
+                  ),
+
+                  _gridItem(
+                    child: _buildLocationButton(),
+                    label: "Maps",
+                  ),
+                  _gridItem(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (widget.isCertified) {
+                          _showDialogVB(context, 'mfp_certified_user_app');
+                        } else {
+                          _showDialogPV(context, 'profile_verified_user_app');
+                        }
+                      },
+                      child: widget.isCertified
+                          ? const VerifiedBadge(isCertified: true)
+                          : const ProfileVerified(),
+                    ),
+                    label: "Certified",
+                  ),
+
+                  _gridItem(
+                    child: Consumer<HiddenServicesProvider>(
+                      builder: (context, hideProv, _) {
+                        final isHidden = hideProv.hidden.contains(_serviceId);
+
+                        return Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white,
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.hide_source,
+                                color: Colors.red, size: 22),
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _showHideConfirmationDialog(
+                                  context, _serviceId, isHidden, hideProv);
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                    label: "Hide",
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+  void _showTotalReviews(BuildContext context, Map<String, dynamic> stats) {
+    final count = stats['count'] ?? 0;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Text(
+            "Ratings",
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          content: Text(
+            "⭐ Total Reviews: $count",
+            style: GoogleFonts.poppins(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                "OK",
+                style: GoogleFonts.poppins(),
+              ),
+            )
+          ],
+        );
+      },
+    );
+  }
+
+
+  Widget _gridItem({required Widget child, required String label}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          height: 62,   // FIXED SIZE → perfect alignment
+          width: 62,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+            border: Border.all(color: Colors.black87, width: 0.8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black12,
+                blurRadius: 3,
+                offset: Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Center(
+            child: child, // auto centered
+          ),
+        ),
+
+        const SizedBox(height: 6),
+
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+
+  Widget _buildLikeButton() {
+    return Consumer<FavoritesProvider>(
+      builder: (ctx, favProv, _) {
+        final liked = favProv.liked.contains(_serviceId);
+
+        return Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 2,
+                offset: const Offset(0, 1.5),
+              ),
+            ],
+          ),
+          child: IconButton(
+            iconSize: 20,
+            padding: EdgeInsets.zero,
+            icon: Icon(
+              liked ? Icons.favorite : Icons.favorite_border,
+              color: liked ? Colors.red : Colors.grey,
+            ),
+            onPressed: () => favProv.toggle(_serviceId),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLikeButtonForSheet() {
+    return Consumer<FavoritesProvider>(
+      builder: (ctx, favProv, _) {
+        final liked = favProv.liked.contains(_serviceId);
+
+        return Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+
+          ),
+          child: IconButton(
+            iconSize: 32,
+            padding: EdgeInsets.zero,
+            icon: Icon(
+              liked ? Icons.favorite : Icons.favorite_border,
+              color: liked ? Colors.red : Colors.grey.shade500,
+            ),
+            onPressed: () => favProv.toggle(_serviceId),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLocationButton() {
+    return GestureDetector(
+      onTap: () => _openMap(_location.latitude, _location.longitude),
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Image.asset(
+            "assets/google_maps_logo.png",
+            height: 30,
+            width: 30,
+          ),
+        ),
+      ),
+    );
+  }
+// --------------------------------------------------------------
+// 🔗 SHARE FEATURE — Opens Native Android/IOS Share Sheet
+// --------------------------------------------------------------
+// This function:
+//
+// 1️⃣ Shows a tiny toast-like SnackBar for instant feedback
+// 2️⃣ Builds a clean, professional share message
+// 3️⃣ Safely fetches the widget's render box (for tablets/iPads)
+// 4️⃣ Opens the native OS share sheet using "share_plus"
+// --------------------------------------------------------------
+  String buildShareSubject(ServiceShareData data) {
+    return "MyFellowPet • ${data.shopName}";
+  }
+
+  String buildShareMessage(ServiceShareData data) {
+    final deepLink =
+        "https://myfellowpet-prod.web.app/boarding/${data.documentId}"; // <-- CHANGE THIS HOST
+    final storeLink =
+        "https://play.google.com/store/apps/details?id=com.myfellowpet.app";
+
+    final petList = buildPetList(data);
+    final startingPrice = extractStartingPrice(data); // auto from "Small"
+
+    return """
+    *${data.shopName}* is now on *MyFellowPet!*
+
+🏡 Service Name: *${data.shopName}*
+📍 Area Name: *${data.areaName}*
+
+🐶 Pets Catered To: *$petList* 
+💸 Starting From: *₹$startingPrice/- per day*
+
+Elevate your pet’s comfort and safety with verified service providers.
+
+👉 *View Service:* 
+$deepLink
+
+👉 *Download MyFellowPet App:*  
+$storeLink
+""";
+  }
+
+  String extractStartingPrice(ServiceShareData data) {
+    if (data.pets.isEmpty) return "0";
+
+    final firstPet = data.pets.first; // e.g. "dog"
+    final petPrices = data.preCalculatedStandardPrices[firstPet];
+
+    if (petPrices == null) return "0";
+
+    final smallPrice = petPrices["Small"] ?? 0;
+
+    return smallPrice.toString();
+  }
+
+  String buildPetList(ServiceShareData data) {
+    if (data.pets.isEmpty) return "No pets listed";
+
+    // Convert: ["dog", "cat"] → "Dog, Cat"
+    return data.pets.map((p) => p[0].toUpperCase() + p.substring(1)).join(", ");
+  }
+
+  Future<XFile> _loadBrandImage() async {
+    final byteData = await rootBundle.load("assets/mobile_application_logo.png");
+
+    return XFile.fromData(
+      byteData.buffer.asUint8List(),
+      name: "myfellowpet.png",
+      mimeType: "image/png",
+    );
+  }
+
+  Future<void> _shareService(ServiceShareData data) async {
+    HapticFeedback.mediumImpact();
+
+    final box = context.findRenderObject() as RenderBox?;
+    final message = buildShareMessage(data);
+    final subject = buildShareSubject(data);
+
+    final XFile brandImage = await _loadBrandImage();
+
+    try {
+
+
+    } catch (e) {
+      debugPrint("⚠ Failed to load image for sharing: $e");
+    }
+
+    await SharePlus.instance.share(
+      ShareParams(
+        text: message,
+        subject: subject,
+        files: [brandImage], // 🔥 ONLY your brand asset
+        sharePositionOrigin: box!.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
@@ -1248,12 +1642,16 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Scaffold(
-            backgroundColor: _design.backgroundColor,
-            body: const Center(
-              child: SizedBox(),
+            backgroundColor: Colors.white,
+            body: Center(
+              child: const CircularProgressIndicator(
+                strokeWidth: 3,
+                color: Color(0xFF2CB4B6), // your teal theme
+              ),
             ),
           );
         }
+
 
         if (snapshot.hasError) {
           return Scaffold(
@@ -1449,125 +1847,165 @@ $_district, $_state - $_postalCode
                         ),
                       ),
                     ),
-
+//----------------------------------------------
+// TOP OVERLAY — CLEAN + SMALLER VERSION
+//----------------------------------------------
                     Positioned(
-                      top: 40,
-                      left: 15,
+                      top: 48, // lowered height
+                      left: 12,
                       child: GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
+                        onTap: () {
+                          // 👇 NEW NAVIGATION LOGIC STARTS HERE
+                          final canPop = Navigator.of(context).canPop();
+
+                          if (canPop) {
+                            // Usual case: A previous page exists, so just pop.
+                            Navigator.of(context).pop();
+                          } else {
+                            // Edge case: No previous page (e.g., deep link or cleared stack).
+                            // Go to HomeWithTabs(1) - assuming HomeWithTabs(1) is the entry point
+                            // and the tab index for Boarding is 1.
+                            // Assuming HomeWithTabs is defined elsewhere.
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(
+                                builder: (context) => HomeWithTabs(), // Go to the Home with Boarding tab (index 1)
+                              ),
+                                  (Route<dynamic> route) => false, // Clear all previous routes
+                            );
+                          }
+                          // 👆 NEW NAVIGATION LOGIC ENDS HERE
+                        },
                         child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: const BoxDecoration(
+                          padding: const EdgeInsets.all(6), // smaller
+                          decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: Colors.white,
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black26,
-                                blurRadius: 4,
-                                offset: Offset(0, 2),
+                                blurRadius: 3, // smaller
+                                offset: const Offset(0, 1.5),
                               ),
                             ],
                           ),
-                          child: const Icon(Icons.arrow_back, color: Colors.black),
+                          child: const Icon(Icons.arrow_back, size: 26, color: Colors.black), // smaller icon
                         ),
                       ),
                     ),
+
                     Positioned(
-                      top: 40,
-                      right: 15,
+                      top: 42,
+                      right: 16,
                       child: Row(
                         children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  border: Border.all(
-                                    color: AppColors.accentColor.withOpacity(0.4),
-                                    width: 1.5,
-                                  ),
-                                  borderRadius: BorderRadius.circular(30),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (widget.isCertified)
-                                      const VerifiedBadge(isCertified: true)
-                                    else
-                                      const ProfileVerified(),
-                                    const SizedBox(width: 8),
-                                    RatingBadge(ratingStats: ratingStats),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 8),
+
+                          // ❤️ Favorite Button
                           Consumer<FavoritesProvider>(
                             builder: (ctx, favProv, _) {
                               final isLiked = favProv.liked.contains(_serviceId);
-                              return Container(
+
+                              return GestureDetector(
+                                onTap: () => favProv.toggle(_serviceId),
+                                child: Container(
+                                  margin: const EdgeInsets.only(right: 10),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black26,
+                                        blurRadius: 5,
+                                        offset: Offset(0, 3),
+                                      ),
+                                    ],
+                                    border: Border.all(
+                                      color: Colors.black87,
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.all(10),
+                                  child: Icon(
+                                    isLiked ? Icons.favorite : Icons.favorite_border,
+                                    size: 22,
+                                    color: isLiked ? Colors.red : Colors.grey.shade500,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+
+                          // 🔗 Share Button (dummy)
+                          if (_showShareButton)
+                            GestureDetector(
+                              onTap: () => _shareService(
+                                ServiceShareData(
+                                  shopName: widget.shopName,
+                                  areaName: widget.areaName,
+                                  documentId: widget.documentId,
+                                  serviceId: _serviceId,
+                                  pets: petList,
+                                  preCalculatedStandardPrices:
+                                  serviceData['pre_calculated_standard_prices'] ?? {},
+                                ),
+                              ),
+                              child: Container(
+                                margin: const EdgeInsets.only(right: 10),
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: Colors.white,
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.black26,
-                                      blurRadius: 4,
-                                      offset: Offset(0, 2),
+                                      blurRadius: 5,
+                                      offset: Offset(0, 3),
                                     ),
                                   ],
-                                ),
-                                child: IconButton(
-                                  icon: AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 300),
-                                    transitionBuilder: (child, anim) =>
-                                        ScaleTransition(scale: anim, child: child),
-                                    child: Icon(
-                                      isLiked ? Icons.favorite : Icons.favorite_border,
-                                      key: ValueKey(isLiked),
-                                      color: isLiked ? Colors.red : Colors.grey,
-                                    ),
+                                  border: Border.all(
+                                    color: Colors.black87,
+                                    width: 0.8,
                                   ),
-                                  onPressed: () {
-                                    favProv.toggle(_serviceId);
-                                  },
                                 ),
-                              );
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black26,
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
+                                padding: const EdgeInsets.all(10),
+                                child: const Icon(
+                                  Icons.share,
+                                  size: 22,
+                                  color: Colors.black87,
                                 ),
-                              ],
+                              ),
                             ),
-                            child: Consumer<HiddenServicesProvider>(
-                              builder: (context, hideProv, _) {
-                                final isHidden = hideProv.hidden.contains(_serviceId);
-                                return IconButton(
-                                  icon: const Icon(Icons.more_vert, color: Colors.black87),
-                                  iconSize: 20,
-                                  padding: EdgeInsets.zero,
-                                  onPressed: () {
-                                    _showHideConfirmationDialog(context, _serviceId, isHidden, hideProv);
-                                  },
-                                );
-                              },
+                          // 🗂 Categories (Quick Actions) Button
+                          GestureDetector(
+                            onTap: () => _openQuickActionsSheet(context, ratingStats),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 5,
+                                    offset: Offset(0, 3),
+                                  ),
+                                ],
+                                border: Border.all(
+                                  color: Colors.black87,
+                                  width: 0.8,
+                                ),
+                              ),
+                              padding: const EdgeInsets.all(10),
+                              child: Image.asset(
+                                "assets/categories.jpg",
+                                height: 26,
+                                width: 26,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
+                    )
+
+
+
                   ],
                 ),
                 Padding(
@@ -2692,33 +3130,28 @@ class RatingBadge extends StatelessWidget {
     final avg = (stats['avg'] as double).clamp(0.0, 5.0);
     final count = stats['count'] as int;
     if (count == 0) return const SizedBox.shrink();
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(30),
+        shape: BoxShape.circle,
+        color: Colors.white,
+
+
       ),
-      child: Row(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.star, size: 16, color: Colors.white),
-          const SizedBox(width: 5),
-          Text(
-            "${avg.toStringAsFixed(1)}",
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
+          const Icon(
+            Icons.star,
+            size: 21,              // slightly smaller so circle doesn’t grow
+            color: Color(0xffffc100),
           ),
-          const SizedBox(width: 3),
+          const SizedBox(height: 3),
           Text(
-            "(${count})",
+            avg.toStringAsFixed(1),
             style: GoogleFonts.poppins(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withOpacity(0.9),
+              fontSize: 9.5,      // reduced slightly to compensate
+              fontWeight: FontWeight.w700,
+              color: Colors.black,
             ),
           ),
         ],
@@ -3308,99 +3741,13 @@ class PetPricing {
   });
 }
 
+
+
 class VerifiedBadge extends StatelessWidget {
   final bool isCertified;
   const VerifiedBadge({Key? key, required this.isCertified}) : super(key: key);
 
-  Future<void> _showDialog(BuildContext context, String field) async {
-    final doc = await FirebaseFirestore.instance
-        .collection('settings')
-        .doc('testaments')
-        .get();
 
-    final message = doc.data()?[field] ?? 'No info available';
-
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // HEADER ROW WITH ICON + TITLE
-              Row(
-                children: [
-
-                  Expanded(
-                    child: Text(
-                      "MFP Premium",
-                      style: GoogleFonts.poppins(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.black,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 18),
-
-              // MESSAGE BODY
-              Text(
-                message,
-                style: GoogleFonts.poppins(
-                  fontSize: 15,
-                  color: Colors.grey.shade800,
-                  height: 1.5,
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // CLOSE BUTTON
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: TextButton.styleFrom(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                  ),
-                  child: Text(
-                    "Close",
-                    style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.accentColor,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
 
   @override
@@ -3408,87 +3755,278 @@ class VerifiedBadge extends StatelessWidget {
     if (!isCertified) return const SizedBox.shrink();
 
     return GestureDetector(
-      onTap: () => _showDialog(context, 'mfp_certified_user_app'),
       child: Container(
-        width: 42,
-        height: 42,
+        width: 47,
+        height: 47,
         decoration: BoxDecoration(
           color: AppColors.accentColor,
           shape: BoxShape.circle,
+
         ),
         child: const Icon(
           Icons.verified,
           color: Colors.white,
-          size: 26,
+          size: 38,
         ),
       ),
     );
   }
 }
+Future<void> _showDialogVB(BuildContext context, String field) async {
+  final doc = await FirebaseFirestore.instance
+      .collection('settings')
+      .doc('testaments')
+      .get();
+
+  final message = doc.data()?[field] ?? 'No info available';
+
+  showGeneralDialog(
+    context: context,
+    barrierLabel: "Info",
+    barrierDismissible: true,
+    barrierColor: Colors.black.withOpacity(0.45), // soft dim
+    transitionDuration: const Duration(milliseconds: 260),
+    pageBuilder: (_, __, ___) {
+      return Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(
+              maxWidth: 320,
+            ),
+            padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                // 🔥 HEADER
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Information",
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.grey.shade100,
+                        ),
+                        child: const Icon(Icons.close, size: 18),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 14),
+                Divider(color: Colors.grey.shade300, height: 1),
+
+                const SizedBox(height: 16),
+
+                // 🔥 MESSAGE BODY
+                Text(
+                  message,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    color: Colors.black87,
+                    height: 1.6,
+                  ),
+                ),
+
+                const SizedBox(height: 26),
+
+                // 🔥 MODERN BUTTON
+                Align(
+                  alignment: Alignment.center,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      elevation: 0,
+                      backgroundColor: AppColors.accentColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 36,
+                        vertical: 12,
+                      ),
+                    ),
+                    child: Text(
+                      "Got it",
+                      style: GoogleFonts.poppins(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+
+    // 🎬 Smooth Fade + Scale Animation
+    transitionBuilder: (_, anim, __, child) {
+      return Transform.scale(
+        scale: 0.95 + (anim.value * 0.05),
+        child: Opacity(
+          opacity: anim.value,
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showDialogPV(BuildContext context, String field) async {
+  final doc = await FirebaseFirestore.instance
+      .collection('settings')
+      .doc('testaments')
+      .get();
+
+  final message = doc.data()?[field] ?? 'No info available';
+
+  showGeneralDialog(
+    context: context,
+    barrierLabel: "Info",
+    barrierDismissible: true,
+    barrierColor: Colors.black.withOpacity(0.45),
+    transitionDuration: const Duration(milliseconds: 250),
+    pageBuilder: (_, __, ___) {
+      return Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 320),
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                // ⭐ TITLE
+                Text(
+                  "Information",
+                  style: GoogleFonts.poppins(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+                Divider(color: Colors.grey.shade300, height: 1),
+
+                const SizedBox(height: 14),
+
+                // 📜 MESSAGE
+                Text(
+                  message,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    color: Colors.grey.shade900,
+                    height: 1.55,
+                  ),
+                ),
+
+                const SizedBox(height: 22),
+
+                // ⭐ MODERN CLOSE BUTTON
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
+                    ),
+                    child: Text(
+                      "Close",
+                      style: GoogleFonts.poppins(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+
+    // 🎬 SMOOTH SCALE + FADE ANIMATION
+    transitionBuilder: (_, anim, __, child) {
+      return Transform.scale(
+        scale: 0.95 + (anim.value * 0.05),
+        child: Opacity(
+          opacity: anim.value,
+          child: child,
+        ),
+      );
+    },
+  );
+}
 
 class ProfileVerified extends StatelessWidget {
   const ProfileVerified({Key? key}) : super(key: key);
 
-  Future<void> _showDialog(BuildContext context, String field) async {
-    final doc = await FirebaseFirestore.instance
-        .collection('settings')
-        .doc('testaments')
-        .get();
 
-    final message = doc.data()?[field] ?? 'No info available';
 
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        backgroundColor: Colors.white,
-        title: Text(
-          "Profile Verified",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.w600,
-            color: AppColors.primaryColor,
-          ),
-        ),
-        content: Text(
-          message,
-          style: GoogleFonts.poppins(
-            fontSize: 14,
-            color: Colors.grey.shade800,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              "Close",
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.w500,
-                color: AppColors.primaryColor,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => _showDialog(context, 'profile_verified_user_app'),
       child: Container(
-        width: 42,
-        height: 42,
+        width: 47,
+        height: 47,
+
         decoration: BoxDecoration(
           color: AppColors.primaryColor,
           shape: BoxShape.circle,
+
         ),
         child: const Icon(
           Icons.check_circle,
           color: Colors.white,
-          size: 26,
+          size: 38,
         ),
       ),
     );
@@ -4848,5 +5386,24 @@ class FeedingInfoButton extends StatelessWidget {
       ),
     );
   }
+}
 
+
+class ServiceShareData {
+  final String shopName;
+  final String areaName;
+  final String documentId;
+  final String serviceId;
+
+  final List<String> pets;   // ✅ Add this
+  final Map<String, dynamic> preCalculatedStandardPrices; // ✅ Add this
+
+  ServiceShareData({
+    required this.shopName,
+    required this.areaName,
+    required this.documentId,
+    required this.serviceId,
+    required this.pets,                         // <—
+    required this.preCalculatedStandardPrices,  // <—
+  });
 }

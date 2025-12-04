@@ -152,13 +152,13 @@ class _BoardingChatScreenState extends State<BoardingChatScreen> {
                 sentMessageBodyTextStyle: GoogleFonts.poppins(
                   color: Colors.black87, // <--- WAS WHITE, NOW BLACK
                   fontSize: 14.5,
-                  height: 1.2,
+                  height: 1.5,
                 ),
 
                 receivedMessageBodyTextStyle: GoogleFonts.poppins(
                   color: Colors.black87,
                   fontSize: 14.5,
-                  height: 1.2,
+                  height: 1.5,
                 ),
 
                 // Date Separators
@@ -279,7 +279,6 @@ class _BoardingChatScreenState extends State<BoardingChatScreen> {
       ],
     );
   }
-
   Widget _buildCustomBubble(
       Widget child, {
         required types.Message message,
@@ -287,12 +286,14 @@ class _BoardingChatScreenState extends State<BoardingChatScreen> {
       }) {
     final isMyMessage = message.author.id == _me.id;
     final role = (message.metadata?['sent_by'] ?? '').toString();
+
     final time = DateFormat('hh:mm a').format(
       DateTime.fromMillisecondsSinceEpoch(message.createdAt ?? 0),
     );
 
     String label = '';
     Color labelColor = Colors.grey;
+
     if (!isMyMessage) {
       if (role == 'sp') {
         label = 'Service Provider';
@@ -303,106 +304,86 @@ class _BoardingChatScreenState extends State<BoardingChatScreen> {
       }
     }
 
-    return Align(
-      alignment: isMyMessage ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        constraints:
-        BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        decoration: BoxDecoration(
-          color: Colors.white, // White background for BOTH
-
-          // Teal Border for ME, Grey Border for THEM
-          border: Border.all(
-            color: isMyMessage ? primaryColor : Colors.grey.shade300,
-            width: 1.5,
-          ),
-
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: isMyMessage ? const Radius.circular(16) : const Radius.circular(2),
-            bottomRight: isMyMessage ? const Radius.circular(2) : const Radius.circular(16),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 3,
-              offset: const Offset(0, 2),
-            )
-          ],
-        ),
-        child: Stack(
-          children: [
-            // 1. The Message Text
-            Padding(
-              // Add bottom padding to prevent text from being covered by the time
-              // if it reaches the last line.
-              padding: const EdgeInsets.only(
-                  left: 0,
-                  right: 0,
-                  top: 4,
-                  bottom: 12 // Space reserved for the timestamp
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Column(
+        crossAxisAlignment:
+        isMyMessage ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          // ---------------------------
+          //   CHAT BUBBLE
+          // ---------------------------
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 6),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.88,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(
+                color: isMyMessage ? primaryColor : Colors.grey.shade300,
+                width: 1.3,
+              ),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(16),
+                topRight: const Radius.circular(16),
+                bottomLeft:
+                isMyMessage ? const Radius.circular(16) : const Radius.circular(3),
+                bottomRight:
+                isMyMessage ? const Radius.circular(3) : const Radius.circular(16),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 2,
+                  offset: const Offset(0, 1),
+                )
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 6,   // ↓ tightened
+                vertical: 3,     // ↓ tightened
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Label (e.g. Service Provider)
+                  // Ultra-tight label
                   if (!isMyMessage && label.isNotEmpty)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 2.0),
+                      padding: const EdgeInsets.only(bottom: 1),
                       child: Text(
                         label,
                         style: GoogleFonts.poppins(
-                          fontSize: 10,
+                          fontSize: 9,
                           fontWeight: FontWeight.w700,
                           color: labelColor,
                         ),
                       ),
                     ),
-                  // The actual text from the library
+
                   child,
                 ],
               ),
             ),
+          ),
 
-            // 2. The Time (Floating in the corner)
-            Positioned(
-              bottom: 0,
-              // If it's my message, put time on Right. If SP, put on Left.
-              right: isMyMessage ? 0 : null,
-              left: isMyMessage ? null : 0,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 2, right: 4, left: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      time,
-                      style: GoogleFonts.poppins(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w500,
-                        color: isMyMessage
-                            ? Colors.black54 // Darker grey for visibility
-                            : Colors.grey.shade500,
-                      ),
-                    ),
-                    if (isMyMessage) ...[
-                      const SizedBox(width: 3),
-                      Icon(
-                        Icons.done_all_rounded,
-                        size: 13,
-                        color: primaryColor.withOpacity(0.8),
-                      ),
-                    ],
-                  ],
-                ),
+          // ---------------------------
+          //   TIME BELOW THE BUBBLE
+          // ---------------------------
+          Padding(
+            padding: const EdgeInsets.only(top: 1, right: 10, left: 10),
+            child: Text(
+              time,
+              style: GoogleFonts.poppins(
+                fontSize: 9,
+                color: Colors.grey.shade600,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
+
 }

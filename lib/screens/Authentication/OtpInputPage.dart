@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:myfellowpet_user/app_colors.dart';
 import 'package:pin_code_fields/pin_code_fields.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -37,6 +38,8 @@ class OtpInputPage extends StatefulWidget {
 class _OtpInputPageState extends State<OtpInputPage> {
   late String _verificationId;
   final _pinController = TextEditingController();
+  bool _didAutoVerify = false;
+
   bool _verifying = false;
   Timer? _timer;
   int _secondsLeft = 60;
@@ -82,9 +85,12 @@ class _OtpInputPageState extends State<OtpInputPage> {
       ),
     );
   }
-
   Future<void> _verifyPin(String code) async {
+    if (_didAutoVerify) return;
+
     if (code.length != 6) return;
+
+    // 🔒 Lock UI & show loader immediately
     setState(() => _verifying = true);
 
     try {
@@ -92,30 +98,39 @@ class _OtpInputPageState extends State<OtpInputPage> {
         verificationId: _verificationId,
         smsCode: code,
       );
+
+      // 🔥 This signs the user in (manual or auto)
       await FirebaseAuth.instance.signInWithCredential(cred);
 
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
+        if (mounted) setState(() => _verifying = false);
         _showSnackbar("Something went wrong. Please try again.");
-        setState(() => _verifying = false);
         return;
       }
 
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      // 🔍 Fetch user document
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
 
+      // ---------------------------------------------------------
+      // 🔐 ACCOUNT EXISTS
+      // ---------------------------------------------------------
       if (userDoc.exists) {
         final data = userDoc.data()!;
         final lastLoginTs = data['last_login'] as Timestamp?;
-        final accountStatus = (data['account_status'] as String?) ?? 'active';
+        final accountStatus = data['account_status'] ?? 'active';
         final pinSet = data['pin_set'] == true;
 
-        // 🔒 If locked, show Try With PIN option instead of blocking
+        // 🔒 Account locked → Show PIN option
         if (accountStatus == 'locked') {
-          setState(() => _verifying = false);
+          if (mounted) setState(() => _verifying = false);
 
           showModalBottomSheet(
             context: context,
-            shape: const RoundedRectangleBorder( // Added const
+            shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             ),
             backgroundColor: Colors.white,
@@ -124,40 +139,39 @@ class _OtpInputPageState extends State<OtpInputPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.lock_outline, color: Colors.redAccent, size: 48), // Added const
-                  const SizedBox(height: 12), // Added const
+                  const Icon(Icons.lock_outline,
+                      color: Colors.redAccent, size: 48),
+                  const SizedBox(height: 12),
                   Text(
-                    // --- THIS LINE IS NOW CENTERED ---
                     'Your account is temporarily locked.',
-                    textAlign: TextAlign.center, // <--- ADDED textAlign: TextAlign.center
+                    textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(
                         fontSize: 18, fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(height: 6), // Added const
+                  const SizedBox(height: 6),
                   Text(
                     'But you can try verifying yourself with your 6-digit PIN.',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(color: Colors.grey[600]),
+                    style: GoogleFonts.poppins(
+                      color: Colors.grey[600],
+                    ),
                   ),
-                  const SizedBox(height: 24), // Added const
+                  const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton(
                       onPressed: () {
-                        Navigator.pop(context); // close bottom sheet
-                        // NOTE: user and _primaryColor are undefined here,
-                        // assuming they are available in the scope where this code is used.
-                        // Navigator.push(
-                        //   context,
-                        //   MaterialPageRoute(
-                        //     builder: (_) => PinGatePage(uid: user.uid),
-                        //   ),
-                        // );
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PinGatePage(uid: user.uid),
+                          ),
+                        );
                       },
                       style: ElevatedButton.styleFrom(
-                        // backgroundColor: _primaryColor, // undefined
-                        backgroundColor: Colors.teal, // Placeholder color
+                        backgroundColor: AppColors.primaryColor,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -171,12 +185,14 @@ class _OtpInputPageState extends State<OtpInputPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12), // Added const
+                  const SizedBox(height: 12),
                   TextButton(
                     onPressed: () => Navigator.pop(context),
                     child: Text(
                       'Cancel',
-                      style: GoogleFonts.poppins(color: Colors.grey[700]),
+                      style: GoogleFonts.poppins(
+                        color: Colors.grey[700],
+                      ),
                     ),
                   ),
                 ],
@@ -184,42 +200,58 @@ class _OtpInputPageState extends State<OtpInputPage> {
             ),
           );
 
-          return; // stop execution
+          return;
         }
 
-        // 🕒 Check days since last login
+        // 🔥 Inactivity check
         final now = DateTime.now();
         final lastLogin = lastLoginTs?.toDate() ?? now;
         final diffDays = now.difference(lastLogin).inDays;
 
         if (pinSet && diffDays > 60) {
-          // Redirect to PIN gate if inactive > 60 days
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => PinGatePage(uid: user.uid)),
+            MaterialPageRoute(
+              builder: (_) => PinGatePage(uid: user.uid),
+            ),
           );
-        } else {
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-            'last_login': FieldValue.serverTimestamp(),
-          });
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => HomeWithTabs()),
-          );
+          return;
         }
-      } else {
-        // 🆕 first-time signup
-        Navigator.pushReplacement(
+
+        // ✅ Update last login time
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update({
+          'last_login': FieldValue.serverTimestamp(),
+        });
+
+        // 🚀 Clean transition
+        Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(
-            builder: (_) => UserDetailsPage(phoneNumber: widget.phoneNumber),
-          ),
+          MaterialPageRoute(builder: (_) => HomeWithTabs()),
+              (route) => false,
         );
+        return;
       }
+
+      // ---------------------------------------------------------
+      // 🆕 FIRST TIME USER — Go to details page
+      // ---------------------------------------------------------
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => UserDetailsPage(phoneNumber: widget.phoneNumber),
+        ),
+            (route) => false,
+      );
     } catch (e) {
       debugPrint('❌ OTP Verification Error: $e');
+
+      // ❗ No invalid OTP message during auto verify
       if (mounted) setState(() => _verifying = false);
-      _showSnackbar('Invalid code or something went wrong. Please try again.');
+
+      _showSnackbar("Invalid code. Try again.");
     }
   }
 
@@ -231,7 +263,58 @@ class _OtpInputPageState extends State<OtpInputPage> {
 
     FirebaseAuth.instance.verifyPhoneNumber(
       phoneNumber: widget.phoneNumber,
-      verificationCompleted: (_) {},
+      verificationCompleted: (PhoneAuthCredential credential) async {
+        if (_didAutoVerify) return;
+        _didAutoVerify = true;
+        // 🔒 prevent user from typing (UI locked)
+        if (mounted) setState(() => _verifying = true);
+
+        try {
+          // Sign user in instantly
+          await FirebaseAuth.instance.signInWithCredential(credential);
+
+          final user = FirebaseAuth.instance.currentUser;
+          if (user == null) {
+            _showSnackbar("Something went wrong.");
+            if (mounted) setState(() => _verifying = false);
+            return;
+          }
+
+          // 🔍 Check if user exists in Firestore
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get();
+
+          if (!mounted) return;
+
+          if (userDoc.exists) {
+            // 🔥 Existing user → update last login
+            await userDoc.reference.update({
+              'last_login': FieldValue.serverTimestamp(),
+            });
+
+            // CLEAN NAVIGATION → no back stack
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => HomeWithTabs()),
+                  (route) => false,
+            );
+          } else {
+            // 🆕 New User → Go to details page
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(
+                builder: (_) => UserDetailsPage(phoneNumber: widget.phoneNumber),
+              ),
+                  (route) => false,
+            );
+          }
+        } catch (e) {
+          debugPrint("AUTO VERIFY ERROR: $e");
+          if (mounted) setState(() => _verifying = false);
+        }
+      },
       verificationFailed: (e) {
         if (mounted) setState(() => _verifying = false);
         _showSnackbar('Resend failed: ${e.message}');
@@ -304,6 +387,7 @@ class _OtpInputPageState extends State<OtpInputPage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10.0),
                   child: PinCodeTextField(
+                    enabled: !_verifying,
                     appContext: context,
                     length: 6,
                     controller: _pinController,
@@ -339,12 +423,17 @@ class _OtpInputPageState extends State<OtpInputPage> {
                 ),
                 const SizedBox(height: 32),
 
-                // ─── Resend/Loading Section ──────────────────────────────
                 Center(
                   child: _verifying
-                      ? CircularProgressIndicator(
-                    color: _primaryColor,
-                    strokeWidth: 4,
+                      ? Column(
+                    children: [
+                      CircularProgressIndicator(color: _primaryColor),
+                      SizedBox(height: 12),
+                      Text(
+                        "Verifying...",
+                        style: GoogleFonts.poppins(fontSize: 15, color: Colors.grey),
+                      )
+                    ],
                   )
                       : Column(
                     children: [
@@ -355,15 +444,12 @@ class _OtpInputPageState extends State<OtpInputPage> {
                           fontSize: 14,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8),
                       _canResend
                           ? TextButton(
                         onPressed: _resendCode,
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                        ),
                         child: Text(
-                          'Resend Code',
+                          "Resend Code",
                           style: GoogleFonts.poppins(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
@@ -372,16 +458,13 @@ class _OtpInputPageState extends State<OtpInputPage> {
                         ),
                       )
                           : Text(
-                        'Resend available in $_secondsLeft seconds',
+                        "Resend available in $_secondsLeft seconds",
                         style: GoogleFonts.poppins(
                           color: Colors.grey.shade500,
                           fontSize: 15,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 20),
-
-
                     ],
                   ),
                 ),
@@ -461,6 +544,13 @@ class _PinGatePageState extends State<PinGatePage> {
       setState(() => _loading = false);
     }
   }
+
+  @override
+  void dispose() {
+    _pinCtl.dispose();
+    super.dispose();
+  }
+
 
 
   Future<void> _forgotPin() async {
@@ -1062,6 +1152,13 @@ class _EmailOtpVerificationPageState extends State<EmailOtpVerificationPage> {
       ),
     );
   }
+
+  @override
+  void dispose() {
+    _otpCtl.dispose();
+    super.dispose();
+  }
+
 }
 
 class PinVerificationPage extends StatefulWidget {
@@ -1209,4 +1306,11 @@ class _PinVerificationPageState extends State<PinVerificationPage> {
       ),
     );
   }
+
+  @override
+  void dispose() {
+    _pinCtl.dispose();
+    super.dispose();
+  }
+
 }

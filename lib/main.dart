@@ -1,6 +1,7 @@
 // lib/main.dart
 import 'dart:io' show Platform;
 import 'dart:ui';
+import 'package:app_links/app_links.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:myfellowpet_user/preloaders/BoardingCardsForBoardingHomePage.dart';
@@ -15,6 +16,7 @@ import 'package:myfellowpet_user/screens/AppBars/AllPetsPage.dart';
 import 'package:myfellowpet_user/screens/Authentication/FirstTimeUserLoginDeyts.dart';
 import 'package:myfellowpet_user/screens/Authentication/PhoneSignInPage.dart';
 import 'package:myfellowpet_user/screens/Boarding/boarding_homepage.dart';
+import 'package:myfellowpet_user/screens/Boarding/boarding_servicedetailspage.dart';
 import 'package:myfellowpet_user/screens/Boarding/summary_page_boarding.dart';
 import 'package:myfellowpet_user/screens/BottomBars/homebottomnavigationbar.dart';
 import 'package:myfellowpet_user/screens/HomeScreen/HomeScreen.dart';
@@ -234,10 +236,14 @@ class MyApp extends StatefulWidget {
   @override
   State<MyApp> createState() => _MyAppState();
 }
-
 class _MyAppState extends State<MyApp> {
   bool _hasInternet = true;
   final Connectivity _connectivity = Connectivity();
+  final _appLinks = AppLinks();
+
+  // NEW STATE: Holds the URI if the app launched from a link.
+  Uri? _initialDeepLinkUri;
+  bool _initialLinkChecked = false; // Flag to wait for async link check
 
   @override
   void initState() {
@@ -246,7 +252,86 @@ class _MyAppState extends State<MyApp> {
     _connectivity.onConnectivityChanged.listen((status) {
       setState(() => _hasInternet = status != ConnectivityResult.none);
     });
+
+    // NEW: Start checking for the initial link immediately on cold start
+    _checkInitialDeepLink();
+
+    // Existing: Listen for warm start (App already open, this is working fine)
+    _appLinks.uriLinkStream.listen(_handleWarmLink);
   }
+
+  // NEW: Checks the link only once on app launch (Cold Start)
+  Future<void> _checkInitialDeepLink() async {
+    final uri = await _appLinks.getInitialLink();
+    setState(() {
+      _initialDeepLinkUri = uri;
+      _initialLinkChecked = true; // Signal the build method to proceed
+    });
+  }
+
+  // NEW: Handles navigation when the app is already open (Warm Start)
+  void _handleWarmLink(Uri uri) {
+    if (uri.pathSegments.contains('boarding')) {
+      _performNavigation(uri);
+    }
+  }
+
+  // --- Existing _handleLink logic moved here ---
+  Future<void> _performNavigation(Uri uri) async {
+    // Check if link contains 'boarding' (e.g., https://myfellowpet.com/boarding/SERVICE_ID)
+    if (uri.pathSegments.contains('boarding')) {
+      final serviceId = uri.pathSegments.last;
+      final context = navigatorKey.currentContext;
+
+      if (context == null) return;
+
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users-sp-boarding')
+            .doc(serviceId)
+            .get();
+
+        if (doc.exists) {
+          final data = doc.data() as Map<String, dynamic>;
+
+          final distProv = Provider.of<DistanceProvider>(context, listen: false);
+          final newDistance = distProv.distances[serviceId] ?? 0.0;
+
+          final pets = List<String>.from(data['pets'] ?? []);
+          String? initialPet;
+          if (pets.isNotEmpty) {
+            String p = pets.first;
+            initialPet = p.isNotEmpty ? "${p[0].toUpperCase()}${p.substring(1)}" : p;
+          }
+
+          // Navigate using push (This works because this function is called OUTSIDE the main AuthGate Future)
+          navigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (context) => BoardingServiceDetailPage(
+                documentId: serviceId,
+                shopName: data['shop_name'] ?? 'N/A',
+                shopImage: data['shop_logo'] ?? '',
+                areaName: data['area_name'] ?? 'N/A',
+                distanceKm: newDistance,
+                pets: pets,
+                mode: "1", // Assuming '1' is the correct mode constant
+                rates: {},
+                isOfferActive: data['isOfferActive'] ?? false,
+                isCertified: data['mfp_certified'] ?? false,
+                otherBranches: List<String>.from(data['other_branches'] ?? []),
+                preCalculatedStandardPrices: Map<String, dynamic>.from(data['pre_calculated_standard_prices'] ?? {}),
+                preCalculatedOfferPrices: Map<String, dynamic>.from(data['pre_calculated_offer_prices'] ?? {}),
+                initialSelectedPet: initialPet,
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        print("Error handling deep link: $e");
+      }
+    }
+  }
+
 
   Future<void> _checkInternet() async {
     final result = await _connectivity.checkConnectivity();
@@ -255,103 +340,157 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    // 🛑 1. WAIT STATE: If check hasn't completed, show splash page
+    if (!_initialLinkChecked) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        navigatorKey: navigatorKey,
+        home: const CustomSplashPage(),
+      );
+    }
+
+    // 🛑 2. MAIN APP ROUTE: Pass the checked URI to the AuthGate
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
 
-        theme: ThemeData(
-          useMaterial3: true,
-
-          // ---- BRAND COLORS ----
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: AppColors.primaryColor,
-            primary: AppColors.primaryColor,
-          ),
-
-          // ---- TEXT SELECTION (Cursor, Handles, Highlight) ----
-          textSelectionTheme: TextSelectionThemeData(
-            cursorColor: AppColors.primaryColor,
-            selectionHandleColor: AppColors.primaryColor,
-            selectionColor: AppColors.primaryColor.withOpacity(0.25),
-          ),
-
-
-          // ---- BUTTONS (Elevated / Text / Outlined) ----
-          elevatedButtonTheme: ElevatedButtonThemeData(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryColor,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            ),
-          ),
-
-          textButtonTheme: TextButtonThemeData(
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.primaryColor,
-            ),
-          ),
-
-          outlinedButtonTheme: OutlinedButtonThemeData(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primaryColor,
-              side: BorderSide(color: AppColors.primaryColor),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            ),
-          ),
-
-          // ---- ICONS ----
-          iconTheme: IconThemeData(color: AppColors.primaryColor),
-
-          // ---- APP BAR ----
-          appBarTheme: AppBarTheme(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black87,
-            elevation: 0.3,
-            centerTitle: true,
-            titleTextStyle: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-
-          // ---- DIVIDERS ----
-          dividerTheme: DividerThemeData(
-            color: Colors.grey.shade300,
-            thickness: 1,
-          ),
-
-          progressIndicatorTheme: ProgressIndicatorThemeData(
-            color: AppColors.primaryColor,             // spinning color
-            circularTrackColor: Colors.grey.shade300,  // optional background track
-          ),
-
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: AppColors.primaryColor,
+          primary: AppColors.primaryColor,
         ),
+        // ... (rest of theme unchanged) ...
+        textSelectionTheme: TextSelectionThemeData(
+          cursorColor: AppColors.primaryColor,
+          selectionHandleColor: AppColors.primaryColor,
+          selectionColor: AppColors.primaryColor.withOpacity(0.25),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primaryColor,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.primaryColor,
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.primaryColor,
+            side: BorderSide(color: AppColors.primaryColor),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          ),
+        ),
+        iconTheme: IconThemeData(color: AppColors.primaryColor),
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black87,
+          elevation: 0.3,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+        dividerTheme: DividerThemeData(
+          color: Colors.grey.shade300,
+          thickness: 1,
+        ),
+        progressIndicatorTheme: ProgressIndicatorThemeData(
+          color: AppColors.primaryColor,
+          circularTrackColor: Colors.grey.shade300,
+        ),
+      ),
 
-        home: AnimatedSwitcher(
-
-      duration: const Duration(milliseconds: 400),
+      home: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 400),
         child: _hasInternet
-            ? const CustomSplashPage()
+            ? AuthGate(initialUri: _initialDeepLinkUri) // <-- PASS THE URI HERE
             : NoInternetPage(onRetry: _checkInternet),
       ),
     );
   }
 }
-
-
 class AuthGate extends StatelessWidget {
-  const AuthGate({Key? key}) : super(key: key);
+  final Uri? initialUri; // <-- NEW FIELD
 
-  Future<Widget> handlePostLoginRouting(User user) async {
-    print('🧠 AuthGate: Logged in as ${user.phoneNumber}');
+  const AuthGate({Key? key, this.initialUri}) : super(key: key);
+
+  // NEW HELPER: Fetches deep link data and builds the target page
+  Future<Widget?> _fetchAndBuildDeepLinkPage(Uri uri, BuildContext context) async {
+    // Duplicates the navigation logic from _MyAppState, but now returns the page itself.
+    // This is necessary because AuthGate controls the root widget, not just a push.
+    final serviceId = uri.pathSegments.last;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users-sp-boarding')
+          .doc(serviceId)
+          .get();
+
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        final distProv = Provider.of<DistanceProvider>(context, listen: false);
+        final newDistance = distProv.distances[serviceId] ?? 0.0;
+
+        final pets = List<String>.from(data['pets'] ?? []);
+        String? initialPet;
+        if (pets.isNotEmpty) {
+          String p = pets.first;
+          initialPet = p.isNotEmpty ? "${p[0].toUpperCase()}${p.substring(1)}" : p;
+        }
+
+        return BoardingServiceDetailPage(
+          documentId: serviceId,
+          shopName: data['shop_name'] ?? 'N/A',
+          shopImage: data['shop_logo'] ?? '',
+          areaName: data['area_name'] ?? 'N/A',
+          distanceKm: newDistance,
+          pets: pets,
+          mode: "1",
+          rates: {},
+          isOfferActive: data['isOfferActive'] ?? false,
+          isCertified: data['mfp_certified'] ?? false,
+          otherBranches: List<String>.from(data['other_branches'] ?? []),
+          preCalculatedStandardPrices: Map<String, dynamic>.from(data['pre_calculated_standard_prices'] ?? {}),
+          preCalculatedOfferPrices: Map<String, dynamic>.from(data['pre_calculated_offer_prices'] ?? {}),
+          initialSelectedPet: initialPet,
+        );
+      }
+    } catch (e) {
+      print("Error building cold start deep link page: $e");
+    }
+    return null;
+  }
+
+  // UPDATED handlePostLoginRouting: Now accepts context
+  Future<Widget> handlePostLoginRouting(User user, BuildContext context) async {
+
+    // 🛑 1. DEEP LINK GATING (Cold Start Priority)
+    if (initialUri != null && initialUri!.pathSegments.contains('boarding')) {
+      final targetPage = await _fetchAndBuildDeepLinkPage(initialUri!, context);
+      if (targetPage != null) {
+        print('🚀 Redirecting to deep linked page from Cold Start.');
+        return targetPage; // Pushes deep link page as the root widget
+      }
+    }
+
+    print('🧠 AuthGate: Logged in as ${user.phoneNumber}. Checking status...');
     final firestore = FirebaseFirestore.instance;
     final userRef = firestore.collection('users').doc(user.uid);
     final userDoc = await userRef.get();
+
+    // ... (Your existing inactivity lock logic) ...
 
     DateTime? lastLogin;
     if (userDoc.exists) {
@@ -364,7 +503,6 @@ class AuthGate extends StatelessWidget {
     bool shouldLock = false;
     if (lastLogin != null) {
       final daysSinceLast = DateTime.now().difference(lastLogin).inDays;
-      print('📅 Days since last login: $daysSinceLast');
       if (daysSinceLast > 90) {
         shouldLock = true;
       }
@@ -375,8 +513,7 @@ class AuthGate extends StatelessWidget {
         'account_status': 'locked',
       });
       print('🔒 Account locked due to inactivity.');
-      // Redirect to PIN/Lock screen (or a reactivation screen)
-      return PhoneAuthPage(); // replace with your lock/reactivation page
+      return PhoneAuthPage();
     }
 
     if (userDoc.exists) {
@@ -392,6 +529,7 @@ class AuthGate extends StatelessWidget {
       return PhoneAuthPage();
     }
 
+    // 🛑 2. ACTIVE BOOKING CHECK (Existing Logic)
     final activeBooking = await getActiveBookingDocId(user.uid);
     if (activeBooking != null) {
       final parts = activeBooking.split('|');
@@ -431,25 +569,18 @@ class AuthGate extends StatelessWidget {
               (data['pet_sizes'] ?? data['petSizesList'] ?? [])
           );
 
-
-
           return SummaryPage(
             spServiceFeeExcGst: data['sp_service_fee_exc_gst']?.toDouble() ?? 0,
             spServiceFeeIncGst: data['sp_service_fee_inc_gst']?.toDouble() ?? 0,
             gstOnSpService: data['gst_on_sp_service']?.toDouble() ?? 0,
-
             platformFeeExcGst: data['platform_fee_exc_gst']?.toDouble() ?? 0,
             platformFeeIncGst: data['platform_fee_inc_gst']?.toDouble() ?? 0,
             gstOnPlatformFee: data['gst_on_platform_fee']?.toDouble() ?? 0,
-
             totalAmountPaid: data['total_amount_paid']?.toDouble() ?? 0,
-
             remainingRefundableAmount: data['remaining_refundable_amount']?.toDouble() ?? 0,
             totalRefundedAmount: data['total_refunded_amount']?.toDouble() ?? 0,
-
             adminFeeTotal: data['admin_fee_collected_total']?.toDouble() ?? 0,
             adminFeeGstTotal: data['admin_fee_gst_collected_total']?.toDouble() ?? 0,
-
             serviceId: serviceId,
             bookingId: bookingId,
             shopName: data['shopName'] ?? '',
@@ -464,13 +595,11 @@ class AuthGate extends StatelessWidget {
                 : null,
             selectedDates: (data['selectedDates'] as List<dynamic>?)
                 ?.map((e) => (e as Timestamp).toDate())
-                .toList() ??
-                [],
+                .toList() ?? [],
             petIds: List<String>.from(data['pet_id'] ?? []),
             petNames: List<String>.from(data['pet_name'] ?? []),
             petImages: List<String>.from(data['pet_images'] ?? []),
             perDayServices: perDayServices,
-            // The following costs are totals for the entire booking duration, already calculated in the document:
             foodCost: double.tryParse(data['cost_breakdown']?['meals_cost']?.toString() ?? '0'),
             walkingCost: double.tryParse(data['cost_breakdown']?['daily_walking_cost']?.toString() ?? '0'),
             transportCost: double.tryParse(data['transportCost']?.toString() ?? '0'),
@@ -478,7 +607,6 @@ class AuthGate extends StatelessWidget {
             closeTime: data['closeTime'] ?? '',
             areaName: data['areaName'] ?? '',
             areaNameOnly: data['areaName'] ?? '',
-            // Use the total boarding cost from the cost breakdown
             boarding_rate: double.tryParse(data['cost_breakdown']?['boarding_cost']?.toString() ?? '0') ?? 0,
             foodOption: data['foodOption'] ?? '',
             foodInfo: Map<String, dynamic>.from(data['foodInfo'] ?? {}),
@@ -487,20 +615,13 @@ class AuthGate extends StatelessWidget {
             numberOfPets: data['numberOfPets'] ?? 0,
             availableDaysCount: (data['selectedDates'] as List?)?.length ?? 0,
             sp_location: data['shop_location'] ?? const GeoPoint(0, 0),
-
-            // 👇 PASS THE SAFELY CONVERTED MAPS
             mealRates: mealRates,
             walkingRates: walkingRates,
             dailyRates: dailyRates,
-
             refundPolicy: Map<String, int>.from(data['refund_policy'] ?? {}),
             fullAddress: data['full_address'] ?? '',
-
-            // 👇 PASS THE CORRECTLY CAST PET SIZES LIST
             petSizesList: petSizesList,
-
-            // ✨ NEW: Retrieve and pass the petCostBreakdown array
-            petCostBreakdown: List<Map<String, dynamic>>.from(data['petCostBreakdown'] ?? []), 
+            petCostBreakdown: List<Map<String, dynamic>>.from(data['petCostBreakdown'] ?? []),
             gstNumber: data['gst_number'] ?? 'NA', gstRegistered: data['gst_registered'] ?? false,
           );
         }
@@ -510,7 +631,7 @@ class AuthGate extends StatelessWidget {
       }
     }
 
-    // 6️⃣ Default route
+    // 3. FINAL DEFAULT ROUTE (Home page)
     if (userDoc.exists) {
       return ReviewGate(child: HomeWithTabs());
     } else {
@@ -525,22 +646,19 @@ class AuthGate extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (ctx, snap) {
         if (snap.connectionState != ConnectionState.active) {
-          // 💡 FIX: Return nothing visually, relying on the Native/Custom Splash
           return const Scaffold(body: Center(child: CircularProgressIndicator(color: AppColors.primary,)));
         }
 
         final user = snap.data;
         if (user == null) {
-          print('🔓 Not logged in. Going to PhoneAuthPage.');
           return PhoneAuthPage();
         }
 
-        // This FutureBuilder now swaps pages *inside* the main MaterialApp
         return FutureBuilder<Widget>(
-          future: handlePostLoginRouting(user),
+          // Note: Passing context to handlePostLoginRouting
+          future: handlePostLoginRouting(user, ctx),
           builder: (ctx, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
-              // 💡 FIX: Return nothing visually, relying on the Native/Custom Splash
               return const Scaffold(body: Center(child: CircularProgressIndicator(color: AppColors.primary,)));
             }
             return snapshot.data!;
@@ -627,3 +745,4 @@ class HomeWithTabsState extends State<HomeWithTabs> {
     );
   }
 }
+

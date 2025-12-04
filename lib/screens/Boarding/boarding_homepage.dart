@@ -758,7 +758,7 @@ class _BoardingHomepageState extends State<BoardingHomepage> with TickerProvider
     // By accessing them with Provider.of(context), this method will re-run
     // whenever they change.
     Provider.of<HiddenServicesProvider>(context);
-    Provider.of<FavoritesProvider>(context);
+   // Provider.of<FavoritesProvider>(context);
 
     // Then call filter
     _startFiltering();
@@ -2897,15 +2897,8 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
                 : BorderSide.none,
           ),
           child: InkWell(
-            onTap: () async {
-              // 1️⃣ Show loader ON ROOT NAVIGATOR
-              showFullWhiteLoader(context);
-
-              // Give time for loader UI to mount
-              await Future.delayed(const Duration(milliseconds: 50));
-
-              // 2️⃣ Navigate using NORMAL navigator
-              await Navigator.push(
+            onTap: () {
+              Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => BoardingServiceDetailPage(
@@ -2926,9 +2919,6 @@ class _BoardingServiceCardState extends State<BoardingServiceCard> {
                   ),
                 ),
               );
-
-              // 3️⃣ REMOVE LOADER ON ROOT NAVIGATOR
-              Navigator.of(context, rootNavigator: true).pop();
             },
 
 
@@ -3743,7 +3733,7 @@ class VerifiedBadgeInner extends StatelessWidget {
     return GestureDetector(
         onTap: () => _showDialog(context, 'mfp_certified_user_app'),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+          padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
           decoration: BoxDecoration(
             color: AppColors.accentColor,
             borderRadius: const BorderRadius.only(
@@ -3756,8 +3746,8 @@ class VerifiedBadgeInner extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.check_circle, size: 14, color: Colors.white),
-              const SizedBox(width: 4),
+              const Icon(Icons.verified, size: 14, color: Colors.white),
+              const SizedBox(width: 2),
               Text("Premium", style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.3)),
             ],
           ),
@@ -3795,7 +3785,7 @@ class ProfileVerifiedInner extends StatelessWidget {
     return GestureDetector(
         onTap: () => _showDialog(context, 'profile_verified_user_app'),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(8, 4, 16, 4),
+          padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
           decoration: BoxDecoration(
             color: AppColors.primaryColor,
             borderRadius: const BorderRadius.only(
@@ -3808,7 +3798,7 @@ class ProfileVerifiedInner extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.check_circle, size: 14, color: Colors.white),
-              const SizedBox(width: 4),
+              const SizedBox(width: 2),
               Text("Verified", style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.3)),
             ],
           ),
