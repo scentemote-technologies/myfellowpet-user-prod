@@ -1383,37 +1383,96 @@ class _BoardingServiceDetailPageState extends State<BoardingServiceDetailPage>
     );
   }
   void _showTotalReviews(BuildContext context, Map<String, dynamic> stats) {
-    final count = stats['count'] ?? 0;
+    final avg = (stats['avg'] ?? 0.0).toDouble().clamp(0.0, 5.0);
+    final count = (stats['count'] ?? 0) as int;
 
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
+        return Dialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
           ),
-          title: Text(
-            "Ratings",
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.w600,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          child: Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.07),
+                  blurRadius: 15,
+                  offset: const Offset(0, 4),
+                )
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ⭐ HEADER
+                Text(
+                  "Ratings & Reviews",
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                // ⭐ BIG STAR + AVG
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.star, size: 34, color: Color(0xFFFFC100)),
+                    const SizedBox(width: 6),
+                    Text(
+                      avg.toStringAsFixed(1),
+                      style: GoogleFonts.poppins(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 10),
+
+                // 🔢 Total Reviews
+                Text(
+                  "$count review${count == 1 ? '' : 's'}",
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // OK BUTTON
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: Text(
+                      "Close",
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.teal,
+                      ),
+                    ),
+                  ),
+                )
+              ],
             ),
           ),
-          content: Text(
-            "⭐ Total Reviews: $count",
-            style: GoogleFonts.poppins(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(
-                "OK",
-                style: GoogleFonts.poppins(),
-              ),
-            )
-          ],
         );
       },
     );
@@ -1634,6 +1693,29 @@ $storeLink
     );
   }
 
+  // lib/screens/Boarding/boarding_servicedetailspage.dart (inside _BoardingServiceDetailPageState)
+
+  /// Handles all back navigation (native gesture/button or custom arrow).
+  /// If a previous page exists, it pops once. If not, it navigates to the home screen.
+  Future<void> _handleBackNavigation() async {
+    if (!mounted) return;
+
+    final nav = Navigator.of(context);
+
+    if (nav.canPop()) {
+      // Usual Case: A previous page exists, so pop once.
+      nav.pop();
+    } else {
+      // Edge Case: No previous page (cleared stack or deep link).
+      // Go to HomeWithTabs (assuming this is the root) and clear the stack.
+      nav.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => HomeWithTabs(),
+        ),
+            (Route<dynamic> route) => false, // Clear all previous routes
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1814,7 +1896,20 @@ $_areaName,
 $_district, $_state - $_postalCode
 ''';
 
-        return Scaffold(
+        return PopScope(
+            // 1. Block the default back behavior (mandatory for custom handling)
+            canPop: false,
+
+            // 2. Dictate the native back behavior
+            onPopInvokedWithResult: (didPop, result) async {
+          // We only act if the system tried to pop but couldn't (because canPop is false).
+          if (!didPop) {
+            // Call the function that handles all back navigation scenarios.
+            await _handleBackNavigation();
+          }
+        },
+
+        child: Scaffold(
           backgroundColor: _design.backgroundColor,
           body: SingleChildScrollView(
             child: Column(
@@ -2160,7 +2255,7 @@ $_district, $_state - $_postalCode
             ),
           ),
 
-        );
+        ),);
       },
     );
   }
@@ -3117,8 +3212,6 @@ class __ServiceOverviewCardState extends State<_ServiceOverviewCard> {
     );
   }
 }
-
-// ✨ OPTIMIZED: This is now a "dumb" widget that just displays data
 class RatingBadge extends StatelessWidget {
   final Map<String, dynamic> ratingStats;
 
@@ -3127,33 +3220,39 @@ class RatingBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stats = ratingStats;
-    final avg = (stats['avg'] as double).clamp(0.0, 5.0);
-    final count = stats['count'] as int;
-    if (count == 0) return const SizedBox.shrink();
+
+    // avg and count safe defaults
+    final avg = (stats['avg'] ?? 0.0).toDouble().clamp(0.0, 5.0);
+    final count = (stats['count'] ?? 0) as int;
+
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.white,
-
-
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(
             Icons.star,
-            size: 21,              // slightly smaller so circle doesn’t grow
+            size: 21,
             color: Color(0xffffc100),
           ),
+
           const SizedBox(height: 3),
+
           Text(
-            avg.toStringAsFixed(1),
+            avg.toStringAsFixed(1), // show "0.0" if no data
             style: GoogleFonts.poppins(
-              fontSize: 9.5,      // reduced slightly to compensate
+              fontSize: 9.5,
               fontWeight: FontWeight.w700,
               color: Colors.black,
             ),
           ),
+
+          // Optional: show review count below in tiny font
+          // if you want:
+          // Text("($count)", style: GoogleFonts.poppins(fontSize: 8, color: Colors.grey)),
         ],
       ),
     );
